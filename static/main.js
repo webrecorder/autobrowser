@@ -5,10 +5,17 @@ window.addEventListener("message", function(event) {
 });
 
 window.addEventListener("load", function() {
+
   document.querySelector("#automate").addEventListener("click", function() {
     console.log("start");
-    window.fetch("/api/auto/" + window.reqid);
+    window.fetch("/api/autostart/" + window.reqid);
+  });
+
+  document.querySelector("#stop").addEventListener("click", function() {
+    console.log("stop");
+    window.fetch("/api/autostop/" + window.reqid);
   })
+
 });
     
 

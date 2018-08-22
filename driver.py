@@ -1,5 +1,6 @@
 from autobrowser import BaseAutoBrowser, BaseAutoTab
 import logging
+import json
 
 from cripy.asyncio import Client
 
@@ -15,14 +16,20 @@ class Driver(object):
     async def pubsub_loop(self):
         self.redis = await aioredis.create_redis('redis://redis', loop=loop)
 
-        channels = await self.redis.subscribe('auto-start')
+        channels = await self.redis.subscribe('auto-event')
 
         while channels[0].is_active:
-            reqid = await channels[0].get(encoding='utf-8')
-            logging.debug('Start Browser: ' + reqid)
-            self.add_browser(reqid)
+            msg = await channels[0].get(encoding='utf-8')
+            msg = json.loads(msg)
+
+            if msg['type'] == 'start':
+                self.add_browser(msg['reqid'])
+
+            elif msg['type'] == 'stop':
+                self.remove_browser(msg['reqid'])
 
     def add_browser(self, reqid):
+        logging.debug('Start Automating Browser: ' + reqid)
         browser = self.browsers.get(reqid)
         if not browser:
             browser = BaseAutoBrowser(api_host='http://shepherd:9020',
@@ -30,6 +37,15 @@ class Driver(object):
                                       tab_class=BehaviorTab)
 
             self.browsers[reqid] = browser
+
+    def remove_browser(self, reqid):
+        logging.debug('Stop Automating Browser: ' + reqid)
+        browser = self.browsers.get(reqid)
+        if not browser:
+            return
+
+        browser.close()
+        del self.browsers[reqid]
 
 
 # ============================================================================
@@ -39,6 +55,9 @@ class BehaviorTab(BaseAutoTab):
         self.tab_data = tab_data
         self.client = None
         self.running = False
+
+        self.behaviors = []
+        self.all_behaviors = None
 
         self.start_async()
 
@@ -57,8 +76,23 @@ class BehaviorTab(BaseAutoTab):
 
         self.running = True
 
-        asyncio.ensure_future(AutoScroll(self))
-        asyncio.ensure_future(VideoPaused(self))
+        self.add_behavior(AutoScroll(self))
+        self.add_behavior(VideoScrollPauseChecker(self))
+        self.all_behaviors = asyncio.gather(*self.behaviors)
+
+    def close(self):
+        self.running = False
+
+        if self.all_behaviors:
+            self.all_behaviors.cancel()
+            self.all_behaviors = None
+
+        if self.client:
+            asyncio.ensure_future(self.client.dispose())
+            self.client = None
+
+    def add_behavior(self, behavior):
+        self.behaviors.append(asyncio.ensure_future(behavior))
 
     def devtools_reconnect(self, result):
         if result['reason'] == 'replaced_with_devtools':
@@ -90,9 +124,9 @@ class Behavior(object):
 class AutoScroll(Behavior):
     SCROLL_COND = 'window.scrollY + window.innerHeight < Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)'
 
-    SCROLL_INC = 'window.scrollBy(0, 20)'
+    SCROLL_INC = 'window.scrollBy(0, 80)'
 
-    SCROLL_SPEED = 0.1
+    SCROLL_SPEED = 0.2
 
     async def run(self):
         while True:
@@ -100,7 +134,7 @@ class AutoScroll(Behavior):
             self.paused = bool(is_paused['result'].get('value'))
 
             if self.paused:
-                print('Paused')
+                print('Scroll Paused')
                 await asyncio.sleep(1.0)
                 continue
 
@@ -115,7 +149,7 @@ class AutoScroll(Behavior):
 
 
 # ============================================================================
-class VideoPaused(Behavior):
+class VideoScrollPauseChecker(Behavior):
     PAUSE_EVENTS = ['play', 'playing']
     UNPAUSE_EVENTS = ['ended', 'abort', 'pause']
 
@@ -129,6 +163,8 @@ class VideoPaused(Behavior):
         if event_name in self.PAUSE_EVENTS:
             print('Pausing Scroll')
             asyncio.ensure_future(self.tab.client.Runtime.evaluate('window.__wr_scroll_paused = true'))
+
+            asyncio.ensure_future(self.tab.client.Runtime.evaluate('document.querySelector("VIDEO").playbackRate = 8.0'))
 
         elif event_name in self.UNPAUSE_EVENTS:
             print('Unpausing Scroll')

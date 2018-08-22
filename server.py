@@ -2,6 +2,7 @@ from gevent import monkey; monkey.patch_all()
 from bottle import route, request, default_app, jinja2_view, debug, static_file
 from gevent.pywsgi import WSGIServer
 import redis
+import json
 
 
 # ============================================================================
@@ -27,9 +28,14 @@ class Server(object):
         def server_static(filepath):
             return static_file(filepath, root='./static/')
 
-        @route('/api/auto/<reqid>')
-        def trigger_auto(reqid):
-            self.redis.publish('auto-start', reqid)
+        @route('/api/autostart/<reqid>')
+        def trigger_auto_start(reqid):
+            self.redis.publish('auto-event', json.dumps({'reqid': reqid, 'type': 'start'}))
+            return {}
+
+        @route('/api/autostop/<reqid>')
+        def trigger_auto_stop(reqid):
+            self.redis.publish('auto-event', json.dumps({'reqid': reqid, 'type': 'stop'}))
             return {}
 
 

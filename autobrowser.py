@@ -211,6 +211,9 @@ class BaseAutoTab(object):
     def __init__(self, **opts):
         pass
 
+    def close(self):
+        pass
+
 
 # ============================================================================
 class CallRDP(object):

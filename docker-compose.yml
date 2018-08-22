@@ -20,9 +20,15 @@ services:
         ports:
             - 9021:9021
 
+    pywb:
+        image: webrecorder/pywb:develop
+
+        working_dir: /tmp
+
+        command: wayback --live --proxy live
+
     redis:
         image: redis:3.2.4
-
 
     shepherd:
         image: oldwebtoday/shepherd
@@ -33,12 +39,16 @@ services:
             - REDIS_BROWSER_URL=redis://redis/0
             - CLUSTER_NAME=scalar_shepherd
             - NETWORK_NAME=autobrowser_default
-            - IDLE_TIMEOUT=6000
+            - IDLE_TIMEOUT=600
             - AUDIO_ALLOWED=true
-            - CONTAINER_EXPIRE_SECS=42000
+            - CONTAINER_EXPIRE_SECS=1200
 
             - SCREEN_WIDTH=1280
             - SCREEN_HEIGHT=800
+
+            - PROXY_HOST=pywb
+            - PROXY_PORT=8080
+            - PROXY_GET_CA=http://wsgiprox/download/pem
 
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
