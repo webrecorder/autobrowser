@@ -1,0 +1,52 @@
+version: '2'
+
+services:
+    driver:
+        build: ./
+
+        volumes:
+            - ./:/tmp
+
+        command: python -u /tmp/driver.py
+
+    server:
+        build: ./
+
+        volumes:
+            - ./:/tmp
+
+        command: python -u /tmp/server.py
+
+        ports:
+            - 9021:9021
+
+    redis:
+        image: redis:3.2.4
+
+
+    shepherd:
+        image: oldwebtoday/shepherd
+
+        command: uwsgi uwsgi.ini --mount /=/shepherd/main.py
+
+        environment:
+            - REDIS_BROWSER_URL=redis://redis/0
+            - CLUSTER_NAME=scalar_shepherd
+            - NETWORK_NAME=autobrowser_default
+            - IDLE_TIMEOUT=6000
+            - AUDIO_ALLOWED=true
+            - CONTAINER_EXPIRE_SECS=42000
+
+            - SCREEN_WIDTH=1280
+            - SCREEN_HEIGHT=800
+
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+
+        ports:
+            - 9020:9020
+
+        depends_on:
+            - redis
+
+

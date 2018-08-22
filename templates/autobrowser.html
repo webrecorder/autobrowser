@@ -1,0 +1,25 @@
+
+<html>
+<head>
+<script src="/static/main.js"> </script>
+<style>
+.browserframe {
+  width: 100%;
+  height: 100%;
+}
+
+.header {
+  text-align: center;
+  width: 100%;
+} 
+</style>
+</head>
+<body>
+
+<div class="header"><button id="automate" style="font-size: 24px">Automate</div>
+
+<iframe src="http://localhost:9020/view/{{ browser }}/{{ url }}" class="browserframe"></iframe>
+
+</body>
+</html>
+
