@@ -1,0 +1,6 @@
+[submodule "simplechrome"]
+	path = simplechrome
+	url = git@github.com:webrecorder/simplechrome.git
+[submodule "chrome-remote-interface-py"]
+	path = chrome-remote-interface-py
+	url = git@github.com:webrecorder/chrome-remote-interface-py.git

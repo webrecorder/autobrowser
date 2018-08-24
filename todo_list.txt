@@ -1,0 +1,8 @@
+Log:
+ - Each behavior has a sequence number and timestamp
+   * e.g. scroll -> wait net idle -> scroll etc
+ - Used for presentation and maybe replay
+Based behaviors:
+ - all pages
+ - surt lookup?
+ - exclusion

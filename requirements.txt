@@ -1,0 +1,16 @@
+git+ssh://git@github.com/webrecorder/chrome-remote-interface-py.git
+git+ssh://git@github.com/webrecorder/simplechrome.git
+aioredis
+async-timeout
+aiohttp
+yarl
+gevent
+requests
+bottle
+jinja2
+uvloop
+numpy
+redis
+ujson
+pyee
+aiofiles
