@@ -1,31 +1,41 @@
+# -*- coding: utf-8 -*-
 import asyncio
 from abc import ABCMeta, abstractmethod
 from asyncio import Future
-from typing import Dict, Type, List, Optional
+from typing import Optional, Dict, Any
+from typing import Type, List
 
+from cripy import Client
 from pyee import EventEmitter
-from ..basebrowser import BaseAutoBrowser
-from ..behaviors.basebavior import Behavior
 
-__all__ = ["BaseAutoTab"]
+from ..basebrowser import BaseAutoBrowser
+from ..behaviors.basebehavior import Behavior
+from ..util.netidle import monitor
+
+__all__ = ["AutoTabError", "BaseAutoTab"]
+
+
+class AutoTabError(Exception):
+    pass
 
 
 class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
     def __init__(
-        self, browser: Type[BaseAutoBrowser], tab_data: Dict[str, str], *args, **kwargs
+        self, browser: Type[BaseAutoBrowser], tab_data: Dict[str, str]
     ) -> None:
         super().__init__()
         self.browser: BaseAutoBrowser = browser
-        self.tab_data = tab_data
-        self.client = None
-        self._running = False
-        self._reconnecting = False
+        self.tab_data: Dict[str, str] = tab_data
+        self.client: Optional[Client] = None
+        self._running: bool = False
+        self._reconnecting: bool = False
         self._reconnect_promise: Optional[Future] = None
 
         self.behaviors: List[Behavior] = []
-        self.all_behaviors = None
+        self.all_behaviors: Optional[Future] = None
+        self.target_info: Optional[Dict] = None
 
     @property
     def running(self) -> bool:
@@ -83,10 +93,13 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """
         self.behaviors.append(behavior)
 
+    def net_idle(self) -> Future:
+        return monitor(self.client)
+
     @abstractmethod
     async def init(self):
         """Initialize the client connection to the tab"""
-        self._running = True
+        pass
 
     @abstractmethod
     async def close(self):
@@ -100,6 +113,10 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
     @abstractmethod
     async def evaluate_in_page(self, js_string: str):
+        pass
+
+    @abstractmethod
+    async def goto(self, url: str, options: Optional[Dict] = None, **kwargs: Any):
         pass
 
     def __repr__(self):

@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
 import asyncio
-import logging
+import ujson as json
+from typing import Dict
 
 import aioredis
-import ujson as json
 
 from .basebrowser import BaseAutoBrowser
-from .tabs import CripyAutoTab
+from .logger import logger
+from .tabs.behaviorTab import BehaviorTab
 
-logger = logging.getLogger(__file__)
+__all__ = ["Driver"]
 
 
 class Driver(object):
     def __init__(self, loop=None):
-        self.browsers = {}
+        self.browsers: Dict[str, BaseAutoBrowser] = {}
         self.redis = None
         self.loop = loop if loop is not None else asyncio.get_event_loop()
 
@@ -25,7 +26,7 @@ class Driver(object):
         while channels[0].is_active:
             msg = await channels[0].get(encoding="utf-8")
             msg = json.loads(msg)
-
+            logger.debug(f"pubsub_loop got message {msg}")
             if msg["type"] == "start":
                 await self.add_browser(msg["reqid"])
 
@@ -37,7 +38,10 @@ class Driver(object):
         browser = self.browsers.get(reqid)
         if not browser:
             browser = BaseAutoBrowser(
-                api_host="http://shepherd:9020", reqid=reqid, tab_class=CripyAutoTab
+                api_host="http://shepherd:9020",
+                reqid=reqid,
+                tab_class=BehaviorTab,
+                loop=self.loop,
             )
 
             await browser.init(reqid)

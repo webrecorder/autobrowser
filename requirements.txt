@@ -1,5 +1,5 @@
-git+ssh://git@github.com/webrecorder/chrome-remote-interface-py.git
-git+ssh://git@github.com/webrecorder/simplechrome.git
+git+ssh://git@github.com/webrecorder/chrome-remote-interface-py.git@no-gevent-simplechrome-cdp-unification
+git+https://github.com/webrecorder/simplechrome.git@using-cripy
 aioredis
 async-timeout
 aiohttp
@@ -14,3 +14,4 @@ redis
 ujson
 pyee
 aiofiles
+attrs

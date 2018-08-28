@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 import asyncio
-from typing import Optional, List, Dict, Tuple, Any, Union
+from typing import Optional, List, Dict, Tuple, Any, Union, Type, TYPE_CHECKING
 
 from aiohttp import ClientSession
 from pyee import EventEmitter
 
+from .behaviors.scroll import AutoScrollBehavior
 from .logger import logger
+
+if TYPE_CHECKING:
+    from .tabs.basetab import BaseAutoTab
 
 __all__ = ["BaseAutoBrowser"]
 
@@ -23,15 +27,16 @@ class BaseAutoBrowser(EventEmitter):
     def __init__(
         self,
         api_host: str,
-        browser_id: str = "chrome:60",
+        browser_id: str = "chrome:67",
         reqid: str = None,
         cdata=None,
         num_tabs: int = 1,
         pubsub: bool = False,
-        tab_class=None,
+        tab_class: Type["BaseAutoTab"] = None,
         tab_opts=None,
+        loop=None,
     ) -> None:
-        super().__init__()
+        super().__init__(loop=loop if loop is not None else asyncio.get_event_loop())
         self.api_host = api_host
         self.browser_id = browser_id
         self.cdata = cdata
@@ -46,7 +51,6 @@ class BaseAutoBrowser(EventEmitter):
         self.running = False
 
     async def init(self, reqid: Optional[str] = None) -> None:
-        await self.close()
         ip = None
         tab_datas = None
 
@@ -63,9 +67,15 @@ class BaseAutoBrowser(EventEmitter):
         self.reqid = reqid
         self.ip = ip
         self.tabs.clear()
-
         for tab_data in tab_datas:
-            tab = self.tab_class(self, tab_data, **self.tab_opts)
+            if self.tab_opts:
+                tab = self.tab_class(self, tab_data, **self.tab_opts)
+            else:
+                tab = self.tab_class(self, tab_data)
+            asb = AutoScrollBehavior(tab=tab)
+            if asb.has_resources:
+                await asb.load_resources()
+            tab.add_behavior(asb)
             self.tabs.append(tab)
             await tab.init()
 

@@ -1,4 +1,4 @@
-async function scrollPage () {
+(async () => {
   let scrollingTO = 2000
   let lastScrolled = Date.now()
   let scrollCount = 0
@@ -33,4 +33,4 @@ async function scrollPage () {
       }
     }, 200)
   })
-}
+})();

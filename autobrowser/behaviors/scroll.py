@@ -2,7 +2,10 @@
 import os
 import asyncio
 import aiofiles
-from .basebavior import Behavior
+from .basebehavior import Behavior
+from ..logger import logger
+
+__all__ = ["ControlledScrollBehavior", "AutoScrollBehavior"]
 
 
 class ControlledScrollBehavior(Behavior):
@@ -31,19 +34,27 @@ class ControlledScrollBehavior(Behavior):
 
             await asyncio.sleep(self.SCROLL_SPEED)
 
+    async def load_resources(self):
+        pass
+
 
 class AutoScrollBehavior(Behavior):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._js: str = None
+        self._has_resource = True
 
-    async def _load_resources(self):
+    async def load_resources(self):
+        logger.debug(f"AutoScrollBehavior.load_resources")
         async with aiofiles.open(
             f"{os.path.dirname(__file__)}/behaviorjs/autoscroll.js", "r"
         ) as iin:
             self._js = await iin.read()
+        logger.debug(f"AutoScrollBehavior.load_resources complete")
 
     async def run(self):
-        if self._js is None:
-            await self._load_resources()
+        logger.debug(f"AutoScrollBehavior.run")
+        nif = self.tab.net_idle()
         await self.tab.evaluate_in_page(self._js)
+        await nif
+        logger.debug(f"AutoScrollBehavior network_idle")

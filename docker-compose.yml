@@ -8,6 +8,8 @@ services:
             - ./:/tmp
 
         command: python -u /tmp/driver.py
+        depends_on:
+          - redis
 
     server:
         build: ./
@@ -19,6 +21,8 @@ services:
 
         ports:
             - 9021:9021
+        depends_on:
+          - redis
 
     pywb:
         image: webrecorder/pywb:develop
