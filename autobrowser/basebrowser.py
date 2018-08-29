@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 import asyncio
-from typing import Optional, List, Dict, Tuple, Any, Union, Type, TYPE_CHECKING
+import logging
+from typing import Optional, List, Dict, Tuple, Any, Union
 
 from aiohttp import ClientSession
 from pyee import EventEmitter
 
 from .behaviors.scroll import AutoScrollBehavior
-from .logger import logger
-
-if TYPE_CHECKING:
-    from .tabs.basetab import BaseAutoTab
+from .tabs import TAB_CLASSES, BaseAutoTab
 
 __all__ = ["BaseAutoBrowser"]
+
+logger = logging.getLogger("autobrowser")
+
+
+class AutoBrowserError(Exception):
+    pass
 
 
 class BaseAutoBrowser(EventEmitter):
@@ -22,7 +26,7 @@ class BaseAutoBrowser(EventEmitter):
     INIT_BROWSER_URL: str = "/init_browser?reqid={reqid}"
     GET_BROWSER_INFO_URL: str = "/info/{reqid}"
 
-    WAIT_TIME: int = 0.5
+    WAIT_TIME: float = 0.5
 
     def __init__(
         self,
@@ -32,7 +36,7 @@ class BaseAutoBrowser(EventEmitter):
         cdata=None,
         num_tabs: int = 1,
         pubsub: bool = False,
-        tab_class: Type["BaseAutoTab"] = None,
+        tab_class: str = 'BehaviorTab',
         tab_opts=None,
         loop=None,
     ) -> None:
@@ -42,11 +46,11 @@ class BaseAutoBrowser(EventEmitter):
         self.cdata = cdata
         self.reqid = reqid
         self.ip: Optional[str] = None
-        self.tabs = []
+        self.tabs: List[BaseAutoTab] = []
         self.num_tabs = num_tabs
         self.pubsub = pubsub
-        self.tab_class = tab_class
-        self.tab_opts = tab_opts
+        self.tab_class = TAB_CLASSES[tab_class]
+        self.tab_opts = tab_opts if tab_opts is not None else {}
         self.base_ip_url = f"{self.api_host}{self.GET_BROWSER_INFO_URL}"
         self.running = False
 
@@ -54,13 +58,17 @@ class BaseAutoBrowser(EventEmitter):
         ip = None
         tab_datas = None
 
+        # attempt to connect to existing browser/tab
         if reqid is not None:
             ip = await self.get_ip_for_reqid(reqid)
             if ip is not None:
                 tab_datas = await self.find_browser_tabs(ip)
+
+            # ensure reqid is removed
             if tab_datas is None:
                 self.emit("browser_removed", reqid)
 
+        # no tab found, init new browser
         if tab_datas is None:
             reqid, ip, tab_datas = await self.init_new_browser()
 
@@ -68,16 +76,9 @@ class BaseAutoBrowser(EventEmitter):
         self.ip = ip
         self.tabs.clear()
         for tab_data in tab_datas:
-            if self.tab_opts:
-                tab = self.tab_class(self, tab_data, **self.tab_opts)
-            else:
-                tab = self.tab_class(self, tab_data)
-            asb = AutoScrollBehavior(tab=tab)
-            if asb.has_resources:
-                await asb.load_resources()
-            tab.add_behavior(asb)
-            self.tabs.append(tab)
+            tab = self.tab_class.create(self, tab_data, **self.tab_opts)
             await tab.init()
+            self.tabs.append(tab)
 
         self.emit("browser_added", reqid)
 
@@ -113,7 +114,7 @@ class BaseAutoBrowser(EventEmitter):
                 res = await session.get(self.base_ip_url.format(reqid=reqid))
                 json = await res.json()
                 return json.get("ip")
-            except:
+            except Exception:
                 pass
         return None
 
@@ -180,7 +181,7 @@ class BaseAutoBrowser(EventEmitter):
             logger.debug("Waiting for first tab")
 
         # add other tabs
-        for tab_count in range(self.num_tabs - 1):
+        for _ in range(self.num_tabs - 1):
             tab_data = await self.add_browser_tab(res["ip"])
             tab_datas.append(tab_data)
 
@@ -204,18 +205,6 @@ class BaseAutoBrowser(EventEmitter):
             return {"error": "not_inited", "browser_id": browser_id}
 
         return reqid
-
-    async def get_tab_for_url(self, url: str) -> Optional[Dict[str, str]]:
-        tabs = await self.find_browser_tabs(self.ip, url=url, require_ws=False)
-        if not tabs:
-            return None
-
-        id_ = tabs[0]["id"]
-        for tab in self.tabs:
-            if tab.tab_id == id_:
-                return tab
-
-        return None
 
     async def add_browser_tab(self, ip: str) -> Optional[Dict[str, str]]:
         tab = None

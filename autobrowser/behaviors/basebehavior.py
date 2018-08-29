@@ -29,12 +29,11 @@ class Behavior(object, metaclass=ABCMeta):
     def controlled(self) -> bool:
         return self._controlled
 
-    @abstractmethod
-    async def run(self):
+    async def load_resources(self):
         pass
 
     @abstractmethod
-    async def load_resources(self):
+    async def run(self):
         pass
 
     def __await__(self):

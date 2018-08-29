@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
+import logging
+
 import os
 import asyncio
 import aiofiles
 from .basebehavior import Behavior
-from ..logger import logger
 
-__all__ = ["ControlledScrollBehavior", "AutoScrollBehavior"]
+__all__ = ["AutoScrollBehavior", "ControlledScrollBehavior"]
+
+logger = logging.getLogger("autobrowser")
 
 
 class ControlledScrollBehavior(Behavior):
@@ -33,9 +36,6 @@ class ControlledScrollBehavior(Behavior):
             await self.tab.evaluate_in_page(self.SCROLL_INC)
 
             await asyncio.sleep(self.SCROLL_SPEED)
-
-    async def load_resources(self):
-        pass
 
 
 class AutoScrollBehavior(Behavior):

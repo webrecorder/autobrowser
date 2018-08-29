@@ -59,28 +59,28 @@ class NetworkIdleMonitor(EventEmitter):
     def _create_idle_future(self) -> Future:
         """"""
         listeners = [
-            Helper.addEventListener(
+            Helper.add_event_listener(
                 self.client, "Network.requestWillBeSent", self.req_started
             ),
-            Helper.addEventListener(
+            Helper.add_event_listener(
                 self.client, "Network.loadingFinished", self.req_finished
             ),
-            Helper.addEventListener(
+            Helper.add_event_listener(
                 self.client, "Network.loadingFailed", self.req_finished
             ),
         ]
         self._idle_future = self.loop.create_future()
         self._idle_future.add_done_callback(
-            lambda f: Helper.removeEventListeners(listeners)
+            lambda f: Helper.remove_event_listeners(listeners)
         )
 
-        def idlecb():
-            if not self._idle_future.done():
-                self._idle_future.set_result(True)
-
-        self.once("idle", idlecb)
+        self.once("idle", self.idle_cb)
 
         return asyncio.ensure_future(self._global_to_wait(), loop=self.loop)
+
+    def idle_cb(self) -> None:
+        if not self._idle_future.done():
+            self._idle_future.set_result(True)
 
     async def _global_to_wait(self) -> None:
         """"""
@@ -104,10 +104,9 @@ class NetworkIdleMonitor(EventEmitter):
         :return:
         """
         self.requestIds.add(info["requestId"])
-        if len(self.requestIds) > self.num_inflight:
-            if self._to:
-                self._to.cancel()
-                self._to = None
+        if len(self.requestIds) > self.num_inflight and self._to:
+            self._to.cancel()
+            self._to = None
 
     def req_finished(self, info: dict) -> None:
         """

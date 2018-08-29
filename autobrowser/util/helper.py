@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from typing import Dict, Any, List, Callable
+from typing import Callable, Dict, List, Union, Type
 
 from pyee import EventEmitter
 
@@ -8,15 +8,17 @@ __all__ = ["Helper"]
 
 class Helper(object):
     @staticmethod
-    def addEventListener(
+    def add_event_listener(
         emitter: EventEmitter, eventName: str, handler: Callable
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Union[str, Type[EventEmitter], Callable]]:
         """Add handler to the emitter and return emitter/handler."""
         emitter.on(eventName, handler)
         return {"emitter": emitter, "eventName": eventName, "handler": handler}
 
     @staticmethod
-    def removeEventListeners(listeners: List[dict]) -> None:
+    def remove_event_listeners(
+        listeners: List[Dict[str, Union[str, Type[EventEmitter], Callable]]]
+    ) -> None:
         """Remove listeners from emitter."""
         for listener in listeners:
             emitter = listener["emitter"]

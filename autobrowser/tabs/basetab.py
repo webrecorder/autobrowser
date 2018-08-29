@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import logging
 from abc import ABCMeta, abstractmethod
 from asyncio import Future
+from typing import List
 from typing import Optional, Dict, Any
-from typing import Type, List
 
-from cripy import Client
+from cripy import Client, connect
 from pyee import EventEmitter
 
 from ..basebrowser import BaseAutoBrowser
@@ -13,6 +14,8 @@ from ..behaviors.basebehavior import Behavior
 from ..util.netidle import monitor
 
 __all__ = ["AutoTabError", "BaseAutoTab"]
+
+logger = logging.getLogger("autobrowser")
 
 
 class AutoTabError(Exception):
@@ -23,12 +26,15 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
     def __init__(
-        self, browser: Type[BaseAutoBrowser], tab_data: Dict[str, str]
+        self, browser: BaseAutoBrowser, tab_data: Dict[str, str]
     ) -> None:
         super().__init__()
         self.browser: BaseAutoBrowser = browser
         self.tab_data: Dict[str, str] = tab_data
-        self.client: Optional[Client] = None
+        self._url = self.tab_data["url"]
+        self._id = self.tab_data["id"]
+        self.client: Client = None
+        self._behaviors_paused = False
         self._running: bool = False
         self._reconnecting: bool = False
         self._reconnect_promise: Optional[Future] = None
@@ -36,6 +42,24 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self.behaviors: List[Behavior] = []
         self.all_behaviors: Optional[Future] = None
         self.target_info: Optional[Dict] = None
+
+    @property
+    def behaviors_paused(self) -> bool:
+        return self._behaviors_paused
+
+    def pause_behaviors(self):
+        self._behaviors_paused = True
+
+    def resume_behaviors(self):
+        self._behaviors_paused = False
+
+    @property
+    def tab_id(self) -> str:
+        return self._id
+
+    @property
+    def tab_url(self) -> str:
+        return self._url
 
     @property
     def running(self) -> bool:
@@ -63,7 +87,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
             return
         try:
             self._reconnect_promise.cancel()
-        except:
+        except Exception:
             pass
         self._reconnecting = False
 
@@ -96,19 +120,43 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     def net_idle(self) -> Future:
         return monitor(self.client)
 
+    @classmethod
+    @abstractmethod
+    def create(cls, *args, **kwargs) -> "BaseAutoTab":
+        pass
+
     @abstractmethod
     async def init(self):
         """Initialize the client connection to the tab"""
-        pass
+        if self._running:
+            return
+        logger.debug("BaseAutoTab.init")
+        self._running = True
+        self.client = await connect(self.tab_data["webSocketDebuggerUrl"], remote=True)
+
+        logger.debug("BaseAutoTab.init connected")
+
+        self.client.set_close_callback(lambda: self.emit("connection-closed"))
+
+        self.client.Inspector.detached(self.devtools_reconnect)
+        self.client.Inspector.targetCrashed(lambda: self.emit("target-crashed"))
+
+        await asyncio.gather(
+            self.client.Page.enable(),
+            self.client.Network.enable(),
+            self.client.Runtime.enable(),
+        )
+
+        logger.debug("BaseAutoTab.init enabled domains")
 
     @abstractmethod
     async def close(self):
         """Close the client connection to the tab"""
         if self.reconnecting:
             self.stop_reconnecting()
-        if self.all_behaviors:
-            self.all_behaviors.cancel()
-            self.all_behaviors = None
+        if self.client:
+            await self.client.dispose()
+            self.client = None
         self._running = False
 
     @abstractmethod
