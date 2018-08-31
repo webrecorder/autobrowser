@@ -1,14 +1,21 @@
 (async function consumeTweets(xpg) {
-  if (xpg.toString().indexOf("[Command Line API]") === -1) {
+  if (
+    typeof xpg !== 'function' ||
+    xpg.toString().indexOf('[Command Line API]') === -1
+  ) {
     /**
      * @desc Polyfill console api $x
      * @param {string} xpathQuery
+     * @param {Element | Document} startElem
      * @return {Array<HTMLElement>}
      */
-    xpg = function(xpathQuery) {
+    xpg = function(xpathQuery, startElem) {
+      if (startElem == null) {
+        startElem = document;
+      }
       const snapShot = document.evaluate(
         xpathQuery,
-        document,
+        startElem,
         null,
         XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
         null
@@ -24,8 +31,14 @@
     };
   }
 
+  if (document.getElementById('$wrStyle$') == null) {
+    const style = document.createElement('style');
+    style.id = '$wrStyle$';
+    style.innerText = 'body, .wr-scroll-container { scroll-behavior: smooth }';
+    document.head.appendChild(style);
+  }
   /**
-   * @desc An abstraction around interacting with HTML of a tweet in a timeline.
+   * An abstraction around interacting with HTML of a tweet in a timeline.
    *
    *  Selector, element breakdown:
    *    div.tweet.js-stream-tweet... (_container)
@@ -33,105 +46,21 @@
    *         |- div.stream-item-footer (_footer)
    *             |- div.ProfileTweet-action--reply (_tRplyAct)
    *                 |- button[data-modal="ProfileTweet-reply"] (_rplyButton)
-   *                     |- span.ProfileTweet-actionCount--isZero (IFF no replies)
+   *                     |- span.ProfileTweet-actionCount--isZero (IFF no replied)
    *    |- div.self-thread-tweet-cta
    *        |- a.js-nav.show-thread-link
    */
-  class Tweet {
-    /**
-     *
-     * @param {HTMLElement} aTweet - The content div for a tweet in a timeline
-     * @param {string} baseURI - The document.baseURI of the timeline page being viewed
-     */
-    constructor(aTweet, baseURI) {
-      this.tweetFooterSelector = "div.stream-item-footer";
-      this.replyActionSelector = "div.ProfileTweet-action--reply";
-      this.noReplySpanSelector = "span.ProfileTweet-actionCount--isZero";
-      this.replyBtnSelector = 'button[data-modal="ProfileTweet-reply"]';
-      this.closeFullTweetSelector = "div.PermalinkProfile-dismiss > span";
-      this._tweet = aTweet;
-      this._container = aTweet.parentElement;
-      this._dataset = this._container.dataset;
-      this._footer = this._tweet.querySelector(this.tweetFooterSelector);
-      this._tRplyAct = this._footer.querySelector(this.replyActionSelector);
-      this._rplyButton = this._tRplyAct.querySelector(this.replyBtnSelector);
-
-      /**
-       * @desc If the currently visited tweet has replies then the span with
-       * class `ProfileTweet-actionCount--isZero` must not exist
-       * @type {boolean}
-       * @private
-       */
-      this._hasReplys =
-        this._rplyButton.querySelector(this.noReplySpanSelector) == null;
-
-      /**
-       * @desc If the currently visited tweet is apart of a thread,
-       * then an a tag will be present with classes `js-nav.show-thread-link`
-       * @type {boolean}
-       * @private
-       */
-      this._apartThread =
-        this._tweet.querySelector("a.js-nav.show-thread-link") != null;
-      this._baseURI = baseURI;
-    }
-
-    tweetId() {
-      return this._dataset.tweetId;
-    }
-
-    permalinkPath() {
-      return this._dataset.permalinkPath;
-    }
-
-    hasReplys() {
-      return this._hasReplys;
-    }
-
-    apartOfThread() {
-      return this._apartThread;
-    }
-
-    /**
-     * @desc Clicks (views) the currently visited tweet
-     * @return {Promise<void>}
-     */
-    viewFullTweet() {
-      this._container.click();
-      const permalinkPath = this.permalinkPath();
-      return new Promise(resolve => {
-        let interval = setInterval(() => {
-          if (document.baseURI.endsWith(permalinkPath)) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 1500);
-      });
-    }
-
-    /**
-     * @desc Closes the overlay representing viewing a tweet
-     * @return {Promise<void>}
-     */
-    closeFullTweetOverlay() {
-      const overlay = document.querySelector(this.closeFullTweetSelector);
-      if (!overlay) return Promise.resolve();
-      return new Promise((resolve, reject) => {
-        overlay.click();
-        let ninterval = setInterval(() => {
-          if (document.baseURI === this._baseURI) {
-            clearInterval(ninterval);
-            resolve();
-          }
-        }, 1500);
-      });
-    }
-  }
+  const tweetFooterSelector = 'div.stream-item-footer';
+  const replyActionSelector = 'div.ProfileTweet-action--reply';
+  const noReplySpanSelector = 'span.ProfileTweet-actionCount--isZero';
+  const replyBtnSelector = 'button[data-modal="ProfileTweet-reply"]';
+  const closeFullTweetSelector = 'div.PermalinkProfile-dismiss > span';
+  const threadSelector = 'a.js-nav.show-thread-link';
 
   /**
    * @desc Xpath query used to traverse each tweet within a timeline.
    *
-   * Because {@link timelineTraversalIterator} marks each tweet as visited by adding the
+   * Because {@link timelineIterator} marks each tweet as visited by adding the
    * sentinel`$wrvisited$` to the classList of a tweet seen during timeline traversal,
    * normal usage of a CSS selector and `document.querySelectorAll` is impossible
    * unless significant effort is made in order to ensure each tweet is seen only
@@ -161,6 +90,182 @@
     '//div[starts-with(@class,"tweet js-stream-tweet")]/div[@class="content"]';
 
   /**
+   * @desc A variation of {@link tweetXpath} in that it is further constrained
+   * to only search tweets within the overlay that appears when you click on
+   * a tweet
+   * @type {string}
+   */
+  const overlayTweetXpath = `//div[@id="permalink-overlay"]${tweetXpath}`;
+
+  function scrollTweetIntoView(aTweet, delayTime = 2500) {
+    aTweet.scrollIntoView(true, {
+      behavior: 'auto',
+      block: 'center',
+      inline: 'center'
+    });
+    return new Promise(r => setTimeout(r, delayTime));
+  }
+
+  function tweetLoadDelay(delayTime = 3000) {
+    return new Promise(r => setTimeout(r, delayTime));
+  }
+
+  class Tweet {
+    /**
+     *
+     * @param {HTMLElement} aTweet - The content div for a tweet in a timeline
+     * @param {string} baseURI - The document.baseURI of the timeline page being viewed
+     */
+    constructor(aTweet, baseURI) {
+      aTweet.classList.add('$wrvistited$');
+      this.tweet = aTweet;
+      this.container = aTweet.parentElement;
+      this.dataset = this.container.dataset;
+      this.footer = this.tweet.querySelector(tweetFooterSelector);
+      this.tRplyAct = this.footer.querySelector(replyActionSelector);
+      this.rplyButton = this.tRplyAct.querySelector(replyBtnSelector);
+
+      this.fullTweetOverlay = null;
+
+      /**
+       * @desc If the currently visited tweet has replies then the span with
+       * class `ProfileTweet-actionCount--isZero` must not exist
+       * @type {boolean}
+       * @private
+       */
+      this._hasReplys =
+        this.rplyButton.querySelector(noReplySpanSelector) == null;
+      /**
+       * @desc If the currently visited tweet is apart of a thread,
+       * then an a tag will be present with classes `js-nav.show-thread-link`
+       * @type {boolean}
+       * @private
+       */
+      this._apartThread = this.tweet.querySelector(threadSelector) != null;
+
+      this._baseURI = baseURI;
+    }
+
+    scrollIntoView() {
+      return scrollTweetIntoView(this.tweet);
+    }
+
+    tweetId() {
+      return this.dataset.tweetId;
+    }
+
+    permalinkPath() {
+      return this.dataset.permalinkPath;
+    }
+
+    hasReplys() {
+      return this._hasReplys;
+    }
+
+    apartOfThread() {
+      return this._apartThread;
+    }
+
+    shouldViewFullTweet() {
+      return this.hasReplys() || this.apartOfThread();
+    }
+
+    /**
+     * @desc Clicks (views) the currently visited tweet
+     * @return {Promise<void>}
+     */
+    async *viewFullTweet() {
+      await this.openFullTweet();
+      yield* this.visitThreadReplyTweets();
+      await this.closeFullTweetOverlay();
+    }
+
+    /**
+     * @desc Clicks (views) the currently visited tweet
+     * @return {Promise<void>}
+     */
+    openFullTweet() {
+      this.container.click();
+      const permalinkPath = this.permalinkPath();
+      return new Promise(resolve => {
+        let interval = setInterval(() => {
+          if (document.baseURI.endsWith(permalinkPath)) {
+            this.fullTweetOverlay = document.getElementById(
+              'permalink-overlay'
+            );
+            clearInterval(interval);
+            resolve();
+          }
+        }, 1500);
+      });
+    }
+
+    _getViewedTweetsSubTweets() {
+      return document.evaluate(
+        overlayTweetXpath,
+        this.fullTweetOverlay,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null
+      );
+    }
+
+    async *visitThreadReplyTweets() {
+      let snapShot = this._getViewedTweetsSubTweets();
+      let aTweet;
+      let i, len;
+      if (snapShot.snapshotLength === 0) return;
+      do {
+        len = snapShot.snapshotLength;
+        i = 0;
+        while (i < len) {
+          aTweet = snapShot.snapshotItem(i);
+          await scrollTweetIntoView(aTweet);
+          aTweet.classList.add('$wrvistited$');
+          yield aTweet;
+          i += 1;
+        }
+        snapShot = this._getViewedTweetsSubTweets();
+        if (snapShot.snapshotLength === 0) {
+          this._maybeClickThreadShowMore();
+          await tweetLoadDelay();
+          snapShot = this._getViewedTweetsSubTweets();
+        }
+      } while (snapShot.snapshotLength > 0);
+    }
+
+    _maybeClickThreadShowMore() {
+      if (
+        this.fullTweetOverlay.querySelector(
+          'button.ThreadedConversation-showMoreThreadsButton'
+        )
+      ) {
+        this.fullTweetOverlay
+          .querySelector('button.ThreadedConversation-showMoreThreadsButton')
+          .click();
+      }
+    }
+
+    /**
+     * @desc Closes the overlay representing viewing a tweet
+     * @return {Promise<void>}
+     */
+    closeFullTweetOverlay() {
+      const overlay = document.querySelector(closeFullTweetSelector);
+      return new Promise((resolve, reject) => {
+        if (!overlay) return resolve();
+        overlay.click();
+        let ninterval = setInterval(() => {
+          if (document.baseURI === this._baseURI) {
+            clearInterval(ninterval);
+            resolve();
+          }
+        }, 1500);
+      });
+    }
+  }
+
+  /**
    * @desc Determines if we can scroll the timeline any more
    * @return {boolean}
    */
@@ -179,8 +284,8 @@
    *      - scroll into view
    *      - yield tweet
    * (S3) Once all tweets at current scroll position have been visited:
-   *      - wait for Twitter to load more tweets (if more are to be had)
-   *      - if twitter added more tweets, add them to the to be visited set
+   *      - wait for Twitter to load more tweets (if any more are to be had)
+   *      - if twitter added more tweets add them to the to be visited set
    * (S4) If we have more tweets to visit and can scroll more:
    *      - GOTO S2
    *
@@ -188,27 +293,31 @@
    * @param {string} baseURI - The timelines documents baseURI
    * @return {AsyncIterator<Tweet>}
    */
-  async function* timelineTraversalIterator(xpathQuerySelector, baseURI) {
+  async function* timelineIterator(xpathQuerySelector, baseURI) {
     let tweets = xpathQuerySelector(tweetXpath);
     let aTweet;
     do {
       while (tweets.length > 0) {
-        aTweet = tweets.shift();
-        aTweet.classList.add("$wrvistited$");
-        aTweet.scrollIntoView(true, { behavior: "smooth" });
-        yield new Tweet(aTweet, baseURI);
+        aTweet = new Tweet(tweets.shift(), baseURI);
+        await aTweet.scrollIntoView();
+        yield aTweet;
       }
-      await new Promise(r => setTimeout(r, 3000));
-      tweets = tweets.concat(xpathQuerySelector(tweetXpath));
+      tweets = xpg(tweetXpath);
+      if (tweets.length === 0) {
+        await tweetLoadDelay();
+        tweets = xpg(tweetXpath);
+      }
     } while (tweets.length > 0 && canScrollMore());
   }
 
   let aTweet;
-  let tweetIterator = timelineTraversalIterator(xpg, document.baseURI);
+  let subTweet;
+  let tweetIterator = timelineIterator(xpg, document.baseURI);
   for await (aTweet of tweetIterator) {
-    if (aTweet.hasReplys() || aTweet.apartOfThread()) {
-      await aTweet.viewFullTweet();
-      await aTweet.closeFullTweetOverlay();
+    if (aTweet.shouldViewFullTweet()) {
+      for await (subTweet of aTweet.viewFullTweet()) {
+        console.log(subTweet);
+      }
     }
   }
 })($x);
