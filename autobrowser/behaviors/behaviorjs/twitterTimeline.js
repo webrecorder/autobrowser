@@ -283,6 +283,8 @@
    *      - mark as visited
    *      - scroll into view
    *      - yield tweet
+   *      - if should view full tweet (has replies or apart of thread)
+   *        - yield all sub tweets
    * (S3) Once all tweets at current scroll position have been visited:
    *      - wait for Twitter to load more tweets (if any more are to be had)
    *      - if twitter added more tweets add them to the to be visited set
@@ -296,7 +298,6 @@
   async function* timelineIterator(xpathQuerySelector, baseURI) {
     let tweets = xpathQuerySelector(tweetXpath);
     let aTweet;
-    let subTweet;
     do {
       while (tweets.length > 0) {
         aTweet = new Tweet(tweets.shift(), baseURI);
@@ -306,10 +307,10 @@
           yield* aTweet.viewFullTweet();
         }
       }
-      tweets = xpg(tweetXpath);
+      tweets = xpathQuerySelector(tweetXpath);
       if (tweets.length === 0) {
         await tweetLoadDelay();
-        tweets = xpg(tweetXpath);
+        tweets = xpathQuerySelector(tweetXpath);
       }
     } while (tweets.length > 0 && canScrollMore());
   }

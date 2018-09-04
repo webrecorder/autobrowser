@@ -10,6 +10,11 @@ __all__ = ["AutoScrollBehavior", "ControlledScrollBehavior"]
 
 logger = logging.getLogger("autobrowser")
 
+# note(n0tan3rd):
+#   Input.dispatchMouseEvent(type="mouseWheel", x=0, y=0, deltaX=-120, deltaY=-120)
+#   is effectively the same as a mouse scroll (need to figure out correct x, y)
+#   window.addEventListener("mousewheel", (event) => console.log(event), false);
+
 
 class ControlledScrollBehavior(Behavior):
     """The scroll performed by this behavior is controlled by a flag contained in page itself."""
