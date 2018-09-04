@@ -4,14 +4,16 @@ import logging
 from abc import ABCMeta, abstractmethod
 from asyncio import Future
 from typing import List
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 
 from cripy import Client, connect
 from pyee import EventEmitter
 
-from ..basebrowser import BaseAutoBrowser
 from ..behaviors.basebehavior import Behavior
 from ..util.netidle import monitor
+
+if TYPE_CHECKING:
+    from ..basebrowser import BaseAutoBrowser
 
 __all__ = ["AutoTabError", "BaseAutoTab"]
 
@@ -26,10 +28,10 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
     def __init__(
-        self, browser: BaseAutoBrowser, tab_data: Dict[str, str]
+        self, browser: "BaseAutoBrowser", tab_data: Dict[str, str]
     ) -> None:
         super().__init__()
-        self.browser: BaseAutoBrowser = browser
+        self.browser: "BaseAutoBrowser" = browser
         self.tab_data: Dict[str, str] = tab_data
         self._url = self.tab_data["url"]
         self._id = self.tab_data["id"]

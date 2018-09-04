@@ -6,7 +6,6 @@ from typing import Optional, List, Dict, Tuple, Any, Union
 from aiohttp import ClientSession
 from pyee import EventEmitter
 
-from .behaviors.scroll import AutoScrollBehavior
 from .tabs import TAB_CLASSES, BaseAutoTab
 
 __all__ = ["BaseAutoBrowser"]

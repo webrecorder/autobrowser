@@ -3,8 +3,8 @@ import asyncio
 import logging
 from typing import Optional, Dict, Any
 
-from autobrowser import AutoScrollBehavior
 from .basetab import BaseAutoTab
+from ..behaviors.behavior_manager import BehaviorManager
 
 __all__ = ["BehaviorTab"]
 
@@ -16,10 +16,11 @@ class BehaviorTab(BaseAutoTab):
         if self._running:
             return
         await super().init()
-        asb = AutoScrollBehavior(tab=self)
-        if asb.has_resources:
-            await asb.load_resources()
-        self.add_behavior(asb)
+        behavior_class = BehaviorManager.behavior_for_url(self.tab_data.get("url"))
+        instance = behavior_class(self)
+        if instance.has_resources:
+            await instance.load_resources()
+        self.add_behavior(instance)
 
         self.all_behaviors = asyncio.ensure_future(
             self._behavior_loop(), loop=asyncio.get_event_loop()

@@ -1,19 +1,34 @@
-# asb = AutoScrollBehavior(tab=tab)
-#         if asb.has_resources:
-#             await asb.load_resources()
-#         tab.add_behavior(asb)
-from typing import Type
+from typing import Type, List, TYPE_CHECKING
 
+from urlcanon.rules import MatchRule
+import attr
 from .scroll import AutoScrollBehavior
-from .basebehavior import Behavior
+from .twitterTimeline import TwitterTimelineBehavior
+
+if TYPE_CHECKING:
+    from .basebehavior import Behavior
 
 
-class BehaviorManager(object):
-    @staticmethod
-    def behavior_for_url(url: str) -> Type[Behavior]:
+class URLMatcher(MatchRule):
+
+    def __init__(self, behavior_class: Type["Behavior"], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.behavior_class: Type["Behavior"] = behavior_class
+
+
+class _BehaviorManager(object):
+    def __init__(self):
+        self.rules: List[URLMatcher] = [
+            URLMatcher(
+                TwitterTimelineBehavior, regex="^https://(www.)?twitter.com/[^/]+$"
+            )
+        ]
+
+    def behavior_for_url(self, url: str) -> Type["Behavior"]:
+        for rule in self.rules:
+            if rule.applies(url):
+                return rule.behavior_class
         return AutoScrollBehavior
 
 
-behavior_class = BehaviorManager.behavior_for_url('https')
-
-instance: Behavior = behavior_class()
+BehaviorManager = _BehaviorManager()

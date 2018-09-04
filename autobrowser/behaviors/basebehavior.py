@@ -20,6 +20,11 @@ class Behavior(object, metaclass=ABCMeta):
         self.paused: bool = False
         self._controlled: bool = False
         self._has_resource: bool = False
+        self._done: bool = False
+
+    @property
+    def done(self) -> bool:
+        return self._done
 
     @property
     def has_resources(self) -> bool:

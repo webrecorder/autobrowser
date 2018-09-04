@@ -1,4 +1,4 @@
-(async function consumeTweets(xpg) {
+(async function timelineSetup(xpg, debug=false) {
   if (
     typeof xpg !== 'function' ||
     xpg.toString().indexOf('[Command Line API]') === -1
@@ -31,12 +31,12 @@
     };
   }
 
-  if (document.getElementById('$wrStyle$') == null) {
-    const style = document.createElement('style');
-    style.id = '$wrStyle$';
-    style.innerText = 'body, .wr-scroll-container { scroll-behavior: smooth }';
-    document.head.appendChild(style);
-  }
+  // if (document.getElementById('$wrStyle$') == null) {
+  //   const style = document.createElement('style');
+  //   style.id = '$wrStyle$';
+  //   style.innerText = 'body, .wr-scroll-container { scroll-behavior: smooth }';
+  //   document.head.appendChild(style);
+  // }
   /**
    * An abstraction around interacting with HTML of a tweet in a timeline.
    *
@@ -98,7 +98,7 @@
   const overlayTweetXpath = `//div[@id="permalink-overlay"]${tweetXpath}`;
 
   function scrollTweetIntoView(aTweet, delayTime = 2500) {
-    aTweet.scrollIntoView(true, {
+    aTweet.scrollIntoView({
       behavior: 'auto',
       block: 'center',
       inline: 'center'
@@ -172,7 +172,7 @@
 
     /**
      * @desc Clicks (views) the currently visited tweet
-     * @return {Promise<void>}
+     * @return {AsyncIterator<HTMLElement>}
      */
     async *viewFullTweet() {
       await this.openFullTweet();
@@ -291,16 +291,20 @@
    *
    * @param {function(string): Array<HTMLElement>} xpathQuerySelector
    * @param {string} baseURI - The timelines documents baseURI
-   * @return {AsyncIterator<Tweet>}
+   * @return {AsyncIterator<HTMLElement>}
    */
   async function* timelineIterator(xpathQuerySelector, baseURI) {
     let tweets = xpathQuerySelector(tweetXpath);
     let aTweet;
+    let subTweet;
     do {
       while (tweets.length > 0) {
         aTweet = new Tweet(tweets.shift(), baseURI);
         await aTweet.scrollIntoView();
-        yield aTweet;
+        yield aTweet.tweet;
+        if (aTweet.shouldViewFullTweet()) {
+          yield* aTweet.viewFullTweet();
+        }
       }
       tweets = xpg(tweetXpath);
       if (tweets.length === 0) {
@@ -310,14 +314,10 @@
     } while (tweets.length > 0 && canScrollMore());
   }
 
-  let aTweet;
-  let subTweet;
-  let tweetIterator = timelineIterator(xpg, document.baseURI);
-  for await (aTweet of tweetIterator) {
-    if (aTweet.shouldViewFullTweet()) {
-      for await (subTweet of aTweet.viewFullTweet()) {
-        console.log(subTweet);
-      }
-    }
-  }
-})($x);
+
+  window.$WRTweetIterator$ = timelineIterator(xpg, document.baseURI);
+  window.$WRTIHandler$ = async function () {
+    const next = await $WRTweetIterator$.next();
+    return next.done;
+  };
+})($x, true);

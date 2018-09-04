@@ -49,7 +49,7 @@ class Driver(object):
             )
 
             await browser.init(reqid)
-            browser.on('browser_removed', self.remove_browser)
+            # browser.on('browser_removed', self.remove_browser)
 
             self.browsers[reqid] = browser
 
@@ -61,4 +61,4 @@ class Driver(object):
 
         await browser.close()
         del self.browsers[reqid]
-        browser.remove_listener('browser_removed', self.remove_browser)
+        # browser.remove_listener('browser_removed', self.remove_browser)

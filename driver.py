@@ -4,7 +4,8 @@ import logging
 import uvloop
 
 from autobrowser.driver import Driver
-from autobrowser.logger import logger
+
+logger = logging.getLogger("autobrowser")
 
 if __name__ == '__main__':
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
