@@ -31,12 +31,12 @@
     };
   }
 
-  // if (document.getElementById('$wrStyle$') == null) {
-  //   const style = document.createElement('style');
-  //   style.id = '$wrStyle$';
-  //   style.innerText = 'body, .wr-scroll-container { scroll-behavior: smooth }';
-  //   document.head.appendChild(style);
-  // }
+  if (document.getElementById('$wrStyle$') == null) {
+    const style = document.createElement('style');
+    style.id = '$wrStyle$';
+    style.innerText = 'body, .wr-scroll-container { scroll-behavior: smooth }';
+    document.head.appendChild(style);
+  }
   /**
    * An abstraction around interacting with HTML of a tweet in a timeline.
    *
