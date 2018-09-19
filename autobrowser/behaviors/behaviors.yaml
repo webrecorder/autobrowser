@@ -1,0 +1,21 @@
+- handler:
+    module: 'timeline_feeds'
+    class: 'TimelineFeedBehavior'
+  init:
+    resource: 'twitterTimeline.js'
+  match:
+    regex: "^https://(www.)?twitter.com/[^/]+$"
+- handler:
+    module: 'timeline_feeds'
+    class: 'TimelineFeedBehavior'
+  init:
+    resource: 'facebookNewsFeed.js'
+  match:
+    regex: "^https://(www.)?facebook.com(/)?([?]sk=nf)?$"
+- handler:
+    module: 'timeline_feeds'
+    class: 'TimelineFeedBehavior'
+  init:
+    resource: 'facebookNewsFeed.js'
+  match:
+    regex: "^https://(www.)?facebook.com(/[?]sk=nf)?$"

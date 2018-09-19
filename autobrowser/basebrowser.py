@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import logging
-from typing import Optional, List, Dict, Tuple, Any, Union
+from typing import Optional, List, Dict, Tuple, Any, Union, ClassVar
 
 from aiohttp import ClientSession
 from pyee import EventEmitter
@@ -18,14 +18,14 @@ class AutoBrowserError(Exception):
 
 
 class BaseAutoBrowser(EventEmitter):
-    CDP_JSON: str = "http://{ip}:9222/json"
-    CDP_JSON_NEW: str = "http://{ip}:9222/json/new"
+    CDP_JSON: ClassVar[str] = "http://{ip}:9222/json"
+    CDP_JSON_NEW: ClassVar[str] = "http://{ip}:9222/json/new"
 
-    REQ_BROWSER_URL: str = "/request_browser/{browser}"
-    INIT_BROWSER_URL: str = "/init_browser?reqid={reqid}"
-    GET_BROWSER_INFO_URL: str = "/info/{reqid}"
+    REQ_BROWSER_URL: ClassVar[str] = "/request_browser/{browser}"
+    INIT_BROWSER_URL: ClassVar[str] = "/init_browser?reqid={reqid}"
+    GET_BROWSER_INFO_URL: ClassVar[str] = "/info/{reqid}"
 
-    WAIT_TIME: float = 0.5
+    WAIT_TIME: ClassVar[float] = 0.5
 
     def __init__(
         self,
@@ -35,7 +35,7 @@ class BaseAutoBrowser(EventEmitter):
         cdata=None,
         num_tabs: int = 1,
         pubsub: bool = False,
-        tab_class: str = 'BehaviorTab',
+        tab_class: str = "BehaviorTab",
         tab_opts=None,
         loop=None,
     ) -> None:
@@ -149,12 +149,12 @@ class BaseAutoBrowser(EventEmitter):
         # wait for browser init
         async with ClientSession() as session:
             while True:
-                res = await session.get(
+                response = await session.get(
                     self.api_host + self.INIT_BROWSER_URL.format(reqid=reqid)
                 )
 
                 try:
-                    res = await res.json()
+                    res = await response.json()  # type: Dict[str, str]
                 except Exception as e:
                     logger.debug("Browser Init Failed: " + str(e))
                     return None, None, None
@@ -171,7 +171,7 @@ class BaseAutoBrowser(EventEmitter):
 
         # wait to find first tab
         while True:
-            tab_datas = await self.find_browser_tabs(res["ip"])
+            tab_datas = await self.find_browser_tabs(res.get("ip"))
             if tab_datas:
                 logger.debug(str(tab_datas))
                 break
@@ -181,10 +181,10 @@ class BaseAutoBrowser(EventEmitter):
 
         # add other tabs
         for _ in range(self.num_tabs - 1):
-            tab_data = await self.add_browser_tab(res["ip"])
+            tab_data = await self.add_browser_tab(res.get("ip"))
             tab_datas.append(tab_data)
 
-        return reqid, res["ip"], tab_datas
+        return reqid, res.get("ip"), tab_datas
 
     async def stage_new_browser(
         self, browser_id: str, data: Any
@@ -193,7 +193,7 @@ class BaseAutoBrowser(EventEmitter):
             async with ClientSession() as session:
                 req_url = self.REQ_BROWSER_URL.format(browser=browser_id)
                 res = await session.post(self.api_host + req_url, data=data)
-                json = await res.json()
+                json = await res.json()  # type: Dict[str, str]
         except Exception as e:
             logger.debug(str(e))
             return {"error": "not_available"}
@@ -206,7 +206,7 @@ class BaseAutoBrowser(EventEmitter):
         return reqid
 
     async def add_browser_tab(self, ip: str) -> Optional[Dict[str, str]]:
-        tab = None
+        tab = None  # type: Optional[Dict[str, str]]
         try:
             async with ClientSession() as session:
                 res = await session.get(self.CDP_JSON_NEW.format(ip=ip))

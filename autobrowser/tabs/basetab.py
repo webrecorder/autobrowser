@@ -1,35 +1,29 @@
 # -*- coding: utf-8 -*-
+"""Abstract Base Classes That Defines An Interface For Remote Browser Tabs"""
 import asyncio
 import logging
 from abc import ABCMeta, abstractmethod
 from asyncio import Future
-from typing import List
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
 from cripy import Client, connect
 from pyee import EventEmitter
 
-from ..behaviors.basebehavior import Behavior
-from ..util.netidle import monitor
+from autobrowser.behaviors.basebehavior import Behavior
+from autobrowser.util.netidle import monitor
 
 if TYPE_CHECKING:
-    from ..basebrowser import BaseAutoBrowser
+    from autobrowser.basebrowser import BaseAutoBrowser  # noqa: F401
 
-__all__ = ["AutoTabError", "BaseAutoTab"]
+__all__ = ["BaseAutoTab"]
 
 logger = logging.getLogger("autobrowser")
-
-
-class AutoTabError(Exception):
-    pass
 
 
 class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
-    def __init__(
-        self, browser: "BaseAutoBrowser", tab_data: Dict[str, str]
-    ) -> None:
+    def __init__(self, browser: "BaseAutoBrowser", tab_data: Dict[str, str]) -> None:
         super().__init__()
         self.browser: "BaseAutoBrowser" = browser
         self.tab_data: Dict[str, str] = tab_data
@@ -49,12 +43,6 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     def behaviors_paused(self) -> bool:
         return self._behaviors_paused
 
-    def pause_behaviors(self):
-        self._behaviors_paused = True
-
-    def resume_behaviors(self):
-        self._behaviors_paused = False
-
     @property
     def tab_id(self) -> str:
         return self._id
@@ -73,8 +61,15 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """Is this tab attempting to reconnect to the tab"""
         return self._running and self._reconnecting
 
+    def pause_behaviors(self) -> None:
+        self._behaviors_paused = True
+
+    def resume_behaviors(self) -> None:
+        self._behaviors_paused = False
+
     async def wait_for_reconnect(self) -> None:
-        """If the client connection has been disconnected and we are reconnecting, waits for reconnection to happen"""
+        """If the client connection has been disconnected and we are
+        reconnecting, waits for reconnection to happen"""
         if not self.reconnecting or self._reconnect_promise is None:
             return
         if self._reconnect_promise.done():
@@ -94,13 +89,15 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self._reconnecting = False
 
     def devtools_reconnect(self, result: Dict[str, str]) -> None:
-        """Callback used to reconnect to the browser tab when the client connection was replaced with the devtools."""
+        """Callback used to reconnect to the browser tab when the client connection was
+        replaced with the devtools."""
         if result["reason"] == "replaced_with_devtools":
             self._reconnecting = True
             self._reconnect_promise = asyncio.ensure_future(self._wait_for_reconnect())
 
     async def _wait_for_reconnect(self) -> None:
-        """Attempt to reconnect to browser tab after client connection was replayed with the devtools"""
+        """Attempt to reconnect to browser tab after client connection was replayed with
+        the devtools"""
         while True:
             try:
                 await self.init()
@@ -110,7 +107,8 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
             await asyncio.sleep(3.0)
         self._reconnecting = False
-        self._reconnect_promise.set_result(True)
+        if self._reconnect_promise:
+            self._reconnect_promise.set_result(True)
 
     def add_behavior(self, behavior: Behavior) -> None:
         """A Page behavior to the list of behaviors to be run per page

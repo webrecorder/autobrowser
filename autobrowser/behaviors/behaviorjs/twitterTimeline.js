@@ -317,7 +317,7 @@
 
 
   window.$WRTweetIterator$ = timelineIterator(xpg, document.baseURI);
-  window.$WRTIHandler$ = async function () {
+  window.$WRIteratorHandler$ = async function () {
     const next = await $WRTweetIterator$.next();
     return next.done;
   };

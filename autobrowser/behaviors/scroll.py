@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
+import asyncio
 import logging
 
-import os
-import asyncio
-import aiofiles
-from .basebehavior import Behavior
+from .basebehavior import Behavior, JSBasedBehavior
 
-__all__ = ["AutoScrollBehavior", "ControlledScrollBehavior"]
+__all__ = ["AutoScrollBehavior", "ScrollBehavior"]
 
 logger = logging.getLogger("autobrowser")
 
@@ -16,10 +14,14 @@ logger = logging.getLogger("autobrowser")
 #   window.addEventListener("mousewheel", (event) => console.log(event), false);
 
 
-class ControlledScrollBehavior(Behavior):
-    """The scroll performed by this behavior is controlled by a flag contained in page itself."""
+class ScrollBehavior(Behavior):
+    """The scroll performed by this behavior is controlled by a flag contained in
+    page itself."""
 
-    SCROLL_COND = "window.scrollY + window.innerHeight < Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)"
+    SCROLL_COND = (
+        "window.scrollY + window.innerHeight < "
+        "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)"
+    )
     SCROLL_INC = "window.scrollBy(0, 80)"
     SCROLL_SPEED = 0.2
 
@@ -43,23 +45,14 @@ class ControlledScrollBehavior(Behavior):
             await asyncio.sleep(self.SCROLL_SPEED)
 
 
-class AutoScrollBehavior(Behavior):
+class AutoScrollBehavior(JSBasedBehavior):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._js: str = None
-        self._has_resource = True
-
-    async def load_resources(self):
-        logger.debug(f"AutoScrollBehavior.load_resources")
-        async with aiofiles.open(
-            f"{os.path.dirname(__file__)}/behaviorjs/autoscroll.js", "r"
-        ) as iin:
-            self._js = await iin.read()
-        logger.debug(f"AutoScrollBehavior.load_resources complete")
+        self.conf["resource"] = "autoscroll.js"
 
     async def run(self):
         logger.debug(f"AutoScrollBehavior.run")
         nif = self.tab.net_idle()
-        await self.tab.evaluate_in_page(self._js)
+        await self.tab.evaluate_in_page(self._init_inject)
         await nif
         logger.debug(f"AutoScrollBehavior network_idle")

@@ -139,7 +139,7 @@
   }
 
   window.$WRNFIterator$ = newsFeedIterator(xpg);
-  window.$WRNFHandler$ = async function() {
+  window.$WRIteratorHandler$ = async function() {
     const next = await $WRNFIterator$.next();
     return next.done;
   };

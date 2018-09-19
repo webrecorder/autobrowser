@@ -2,7 +2,7 @@
 import logging
 
 from .basebrowser import BaseAutoBrowser
-from .behaviors import AutoScrollBehavior, Behavior, ControlledScrollBehavior
+from .behaviors import AutoScrollBehavior, Behavior, ScrollBehavior
 from .driver import Driver
 from .tabs import AutoTabError, BaseAutoTab, BehaviorTab, TAB_CLASSES
 from .util import NetworkIdleMonitor, monitor, Helper
@@ -20,7 +20,7 @@ __all__ = [
     "BaseAutoTab",
     "Behavior",
     "BehaviorTab",
-    "ControlledScrollBehavior",
+    "ScrollBehavior",
     "Driver",
     "Helper",
     "monitor",

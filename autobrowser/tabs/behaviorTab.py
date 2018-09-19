@@ -4,7 +4,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from .basetab import BaseAutoTab
-from ..behaviors.behavior_manager import BehaviorManager
+from autobrowser.behaviors.behavior_manager import BehaviorManager
 
 __all__ = ["BehaviorTab"]
 
@@ -16,11 +16,10 @@ class BehaviorTab(BaseAutoTab):
         if self._running:
             return
         await super().init()
-        behavior_class = BehaviorManager.behavior_for_url(self.tab_data.get("url"))
-        instance = behavior_class(self)
-        if instance.has_resources:
-            await instance.load_resources()
-        self.add_behavior(instance)
+        behavior = BehaviorManager.behavior_for_url(self.tab_data.get("url"), self)
+        if behavior.has_resources:
+            await behavior.load_resources()
+        self.add_behavior(behavior)
 
         self.all_behaviors = asyncio.ensure_future(
             self._behavior_loop(), loop=asyncio.get_event_loop()

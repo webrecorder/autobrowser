@@ -1,26 +1,30 @@
 # -*- coding: utf-8 -*-
 from abc import ABCMeta, abstractmethod
-from typing import Type, TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Dict
+
+import aiofiles
+import attr
 
 if TYPE_CHECKING:
-    from ..tabs.basetab import BaseAutoTab
+    from ..tabs.basetab import BaseAutoTab  # noqa: F401
 
 
-__all__ = ["Behavior"]
+__all__ = ["Behavior", "JSBasedBehavior"]
 
 
+@attr.s(auto_attribs=True)
 class Behavior(object, metaclass=ABCMeta):
-    """Base page behavior class.
+    """Base behavior class.
 
-    A page behavior represents an action that is to be performed in the page and its frames.
+    A behavior represents an action that is to be performed in the page and its frames.
     """
 
-    def __init__(self, tab: Type["BaseAutoTab"]) -> None:
-        self.tab: "BaseAutoTab" = tab
-        self.paused: bool = False
-        self._controlled: bool = False
-        self._has_resource: bool = False
-        self._done: bool = False
+    tab: "BaseAutoTab" = attr.ib()
+    conf: Dict = attr.ib(factory=dict)
+    paused: bool = attr.ib(default=False, init=False)
+    _has_resource: bool = attr.ib(default=False, init=False)
+    _done: bool = attr.ib(default=False, init=False)
 
     @property
     def done(self) -> bool:
@@ -29,10 +33,6 @@ class Behavior(object, metaclass=ABCMeta):
     @property
     def has_resources(self) -> bool:
         return self._has_resource
-
-    @property
-    def controlled(self) -> bool:
-        return self._controlled
 
     async def load_resources(self):
         pass
@@ -43,3 +43,17 @@ class Behavior(object, metaclass=ABCMeta):
 
     def __await__(self):
         return self.run().__await__()
+
+
+@attr.s(auto_attribs=True)
+class JSBasedBehavior(Behavior, metaclass=ABCMeta):
+    _did_init: bool = attr.ib(default=False, init=False)
+    _init_inject: str = attr.ib(default="", init=False)
+    _has_resource: bool = attr.ib(default=True, init=False)
+
+    async def load_resources(self) -> None:
+        resource = self.conf.get("resource")
+        if self.conf.get("pkg_resource", True):
+            resource = str(Path(__file__).parent / 'behaviorjs' / resource)
+        async with aiofiles.open(resource, "r") as iin:
+            self._init_inject = await iin.read()

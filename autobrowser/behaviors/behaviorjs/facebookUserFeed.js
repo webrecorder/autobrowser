@@ -60,7 +60,7 @@ async function* timelineIterator(xpg) {
 }
 
 window.$WRTLIterator$ = timelineIterator(xpg);
-window.$WRTLHandler$ = async function() {
+window.$WRIteratorHandler$ = async function() {
     const next = await $WRTLIterator$.next();
     return next.done;
 };

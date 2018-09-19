@@ -13,14 +13,15 @@ __all__ = ["NetworkIdleMonitor", "monitor"]
 
 
 class NetworkIdleMonitor(EventEmitter):
-    """Monitors the network requests of the remote browser to determine when network idle happens"""
+    """Monitors the network requests of the remote browser to determine when
+    network idle happens"""
 
     def __init__(
         self,
         client: Client,
-        num_inflight: Optional[int] = 2,
-        idle_time: Optional[int] = 1,
-        global_wait: Optional[int] = 60,
+        num_inflight: int = 2,
+        idle_time: int = 1,
+        global_wait: int = 60,
     ) -> None:
         self.loop = asyncio.get_event_loop()
         super().__init__(loop=self.loop)
@@ -36,9 +37,9 @@ class NetworkIdleMonitor(EventEmitter):
     def monitor(
         cls,
         client: Client,
-        num_inflight: Optional[int] = 2,
-        idle_time: Optional[int] = 1,
-        global_wait: Optional[int] = 40,
+        num_inflight: int = 2,
+        idle_time: int = 1,
+        global_wait: int = 40,
     ) -> Future:
         """
 
@@ -85,7 +86,7 @@ class NetworkIdleMonitor(EventEmitter):
     async def _global_to_wait(self) -> None:
         """"""
         try:
-            async with async_timeout.timeout(self.global_wait, loop=self.loop) as to:
+            async with async_timeout.timeout(self.global_wait, loop=self.loop):
                 await self._idle_future
         except Exception as e:
             self.emit("idle")
@@ -122,10 +123,7 @@ class NetworkIdleMonitor(EventEmitter):
 
 
 def monitor(
-    client: Client,
-    num_inflight: Optional[int] = 2,
-    idle_time: Optional[int] = 1,
-    global_wait: Optional[int] = 40,
+    client: Client, num_inflight: int = 2, idle_time: int = 1, global_wait: int = 40
 ) -> Future:
     return NetworkIdleMonitor.monitor(
         client=client,

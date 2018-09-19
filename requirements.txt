@@ -16,3 +16,4 @@ ujson
 pyee
 aiofiles
 attrs
+ruamel.yaml

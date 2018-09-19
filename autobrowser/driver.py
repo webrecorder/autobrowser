@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import asyncio
-from asyncio import AbstractEventLoop
 import logging
 import ujson as json
+from asyncio import AbstractEventLoop
 from typing import Dict, Optional
 
 import aioredis
