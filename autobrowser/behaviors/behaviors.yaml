@@ -1,21 +1,28 @@
-- handler:
-    module: 'timeline_feeds'
-    class: 'TimelineFeedBehavior'
+matching:
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedBehavior'
+    init:
+      resource: 'twitterTimeline.js'
+    match:
+      regex: "^https://(www.)?twitter.com/[^/]+$"
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedBehavior'
+    init:
+      resource: 'facebookNewsFeed.js'
+    match:
+      regex: "^https://(www.)?facebook.com(/)?([?]sk=nf)?$"
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedBehavior'
+    init:
+      resource: 'facebookUserFeed.js'
+    match:
+      regex: "^https://(www.)?facebook.com/[^/]+$"
+default:
   init:
-    resource: 'twitterTimeline.js'
-  match:
-    regex: "^https://(www.)?twitter.com/[^/]+$"
-- handler:
-    module: 'timeline_feeds'
-    class: 'TimelineFeedBehavior'
-  init:
-    resource: 'facebookNewsFeed.js'
-  match:
-    regex: "^https://(www.)?facebook.com(/)?([?]sk=nf)?$"
-- handler:
-    module: 'timeline_feeds'
-    class: 'TimelineFeedBehavior'
-  init:
-    resource: 'facebookNewsFeed.js'
-  match:
-    regex: "^https://(www.)?facebook.com(/[?]sk=nf)?$"
+    resource: 'autoscroll.js'
+  handler:
+    module: 'scroll'
+    class: 'AutoScrollBehavior'

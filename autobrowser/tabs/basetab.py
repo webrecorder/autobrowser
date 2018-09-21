@@ -24,13 +24,13 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
     def __init__(self, browser: "BaseAutoBrowser", tab_data: Dict[str, str]) -> None:
-        super().__init__()
+        super().__init__(loop=asyncio.get_event_loop())
         self.browser: "BaseAutoBrowser" = browser
         self.tab_data: Dict[str, str] = tab_data
-        self._url = self.tab_data["url"]
-        self._id = self.tab_data["id"]
+        self._url: str = self.tab_data["url"]
+        self._id: str = self.tab_data["id"]
         self.client: Client = None
-        self._behaviors_paused = False
+        self._behaviors_paused: bool = False
         self._running: bool = False
         self._reconnecting: bool = False
         self._reconnect_promise: Optional[Future] = None

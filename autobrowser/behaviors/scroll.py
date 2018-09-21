@@ -12,6 +12,16 @@ logger = logging.getLogger("autobrowser")
 #   Input.dispatchMouseEvent(type="mouseWheel", x=0, y=0, deltaX=-120, deltaY=-120)
 #   is effectively the same as a mouse scroll (need to figure out correct x, y)
 #   window.addEventListener("mousewheel", (event) => console.log(event), false);
+# client.Input.dispatchMouseEvent(
+#     type="mouseWheel",
+#     x=148,
+#     y=100,
+#     clickCount=0,
+#     button="none",
+#     deltaX=120,
+#     deltaY=120,
+#     timestamp=time.time(),
+# )
 
 
 class ScrollBehavior(Behavior):
@@ -26,11 +36,12 @@ class ScrollBehavior(Behavior):
     SCROLL_SPEED = 0.2
 
     async def run(self):
+        self._done = False
         while True:
             is_paused = await self.tab.evaluate_in_page("window.__wr_scroll_paused")
-            self.paused = bool(is_paused["result"].get("value"))
+            self._paused = bool(is_paused["result"].get("value"))
 
-            if self.paused:
+            if self._paused:
                 print("Scroll Paused")
                 await asyncio.sleep(1.0)
                 continue
@@ -43,16 +54,13 @@ class ScrollBehavior(Behavior):
             await self.tab.evaluate_in_page(self.SCROLL_INC)
 
             await asyncio.sleep(self.SCROLL_SPEED)
+        self._done = True
 
 
 class AutoScrollBehavior(JSBasedBehavior):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.conf["resource"] = "autoscroll.js"
-
     async def run(self):
         logger.debug(f"AutoScrollBehavior.run")
         nif = self.tab.net_idle()
-        await self.tab.evaluate_in_page(self._init_inject)
+        await self.tab.evaluate_in_page(self._resource)
         await nif
         logger.debug(f"AutoScrollBehavior network_idle")

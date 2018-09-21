@@ -3,8 +3,8 @@ import asyncio
 import logging
 from typing import Optional, Dict, Any
 
-from .basetab import BaseAutoTab
 from autobrowser.behaviors.behavior_manager import BehaviorManager
+from .basetab import BaseAutoTab
 
 __all__ = ["BehaviorTab"]
 
