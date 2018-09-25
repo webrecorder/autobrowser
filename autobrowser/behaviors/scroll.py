@@ -58,6 +58,11 @@ class ScrollBehavior(Behavior):
 
 
 class AutoScrollBehavior(JSBasedBehavior):
+    """Automatically scrolls the page a maximum of 20 times or until no more scrolling can be done.
+
+    Waits for network idle after each scroll invocation.
+    """
+
     async def run(self):
         logger.debug(f"AutoScrollBehavior.run")
         nif = self.tab.net_idle()

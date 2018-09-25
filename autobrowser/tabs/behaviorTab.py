@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import logging
-from typing import Optional, Dict, Any
 
 from autobrowser.behaviors.behavior_manager import BehaviorManager
 from .basetab import BaseAutoTab
@@ -20,7 +19,6 @@ class BehaviorTab(BaseAutoTab):
         if behavior.has_resources:
             await behavior.load_resources()
         self.add_behavior(behavior)
-
         self.all_behaviors = asyncio.ensure_future(
             self._behavior_loop(), loop=asyncio.get_event_loop()
         )
@@ -30,14 +28,6 @@ class BehaviorTab(BaseAutoTab):
             self.all_behaviors.cancel()
             self.all_behaviors = None
         await super().close()
-
-    async def evaluate_in_page(self, js_string: str):
-        return await self.client.Runtime.evaluate(
-            js_string, userGesture=True, awaitPromise=True, includeCommandLineAPI=True
-        )
-
-    async def goto(self, url: str, options: Optional[Dict] = None, **kwargs: Any):
-        pass
 
     @classmethod
     def create(cls, *args, **kwargs) -> "BehaviorTab":

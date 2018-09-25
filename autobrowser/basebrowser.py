@@ -69,7 +69,11 @@ class BaseAutoBrowser(EventEmitter):
 
         # no tab found, init new browser
         if tab_datas is None:
-            reqid, ip, tab_datas = await self.init_new_browser()
+            results = await self.init_new_browser()
+            if results is not None:
+                reqid = results["reqId"]
+                ip = results["ip"]
+                tab_datas = results["tab_datas"]
 
         self.reqid = reqid
         self.ip = ip
@@ -143,7 +147,7 @@ class BaseAutoBrowser(EventEmitter):
 
     async def init_new_browser(
         self
-    ) -> Tuple[Optional[str], Optional[str], Optional[List[Dict[str, str]]]]:
+    ) -> Optional[Dict[str, Union[str, List[Dict[str, str]]]]]:
         reqid = await self.stage_new_browser(self.browser_id, self.cdata)
 
         # wait for browser init
@@ -157,7 +161,7 @@ class BaseAutoBrowser(EventEmitter):
                     res = await response.json()  # type: Dict[str, str]
                 except Exception as e:
                     logger.debug("Browser Init Failed: " + str(e))
-                    return None, None, None
+                    return None
 
                 if "cmd_port" in res:
                     break
@@ -184,7 +188,7 @@ class BaseAutoBrowser(EventEmitter):
             tab_data = await self.add_browser_tab(res.get("ip"))
             tab_datas.append(tab_data)
 
-        return reqid, res.get("ip"), tab_datas
+        return dict(reqId=reqid, ip=res.get("ip"), tab_datas=tab_datas)
 
     async def stage_new_browser(
         self, browser_id: str, data: Any

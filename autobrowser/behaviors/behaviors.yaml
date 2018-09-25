@@ -20,6 +20,13 @@ matching:
       resource: 'facebookUserFeed.js'
     match:
       regex: "^https://(www.)?facebook.com/[^/]+$"
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedBehavior'
+    init:
+      resource: 'instagramUser.js'
+    match:
+      regex: "^https://(www.)?instagram.com/[^/]+(/)?$"
 default:
   init:
     resource: 'autoscroll.js'
