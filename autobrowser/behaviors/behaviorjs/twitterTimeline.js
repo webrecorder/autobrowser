@@ -1,4 +1,4 @@
-(async function timelineSetup(xpg, debug=false) {
+(async function timelineSetup(xpg, debug = false) {
   if (
     typeof xpg !== 'function' ||
     xpg.toString().indexOf('[Command Line API]') === -1
@@ -34,7 +34,11 @@
   if (document.getElementById('$wrStyle$') == null) {
     const style = document.createElement('style');
     style.id = '$wrStyle$';
-    style.innerText = 'body, .wr-scroll-container { scroll-behavior: smooth }';
+    let sd = 'body, .wr-scroll-container { scroll-behavior: smooth }';
+    if (debug) {
+      sd += '.wr-debug-visited {border: 6px solid #3232F1;} .wr-debug-visited-thread-reply {border: 6px solid green;} .wr-debug-visited-overlay {border: 6px solid pink;} .wr-debug-click {border: 6px solid red;}';
+    }
+    style.innerText = sd;
     document.head.appendChild(style);
   }
   /**
@@ -166,7 +170,7 @@
       return this._apartThread;
     }
 
-    shouldViewFullTweet() {
+    hasRepliedOrInThread() {
       return this.hasReplys() || this.apartOfThread();
     }
 
@@ -174,9 +178,15 @@
      * @desc Clicks (views) the currently visited tweet
      * @return {AsyncIterator<HTMLElement>}
      */
-    async *viewFullTweet() {
+    async *viewRepliesOrThread() {
       await this.openFullTweet();
       yield* this.visitThreadReplyTweets();
+      await this.closeFullTweetOverlay();
+    }
+
+    async *viewRegularTweet() {
+      await this.openFullTweet();
+      yield this.fullTweetOverlay;
       await this.closeFullTweetOverlay();
     }
 
@@ -193,6 +203,9 @@
             this.fullTweetOverlay = document.getElementById(
               'permalink-overlay'
             );
+            if (debug) {
+              this.fullTweetOverlay.classList.add('wr-debug-visited-overlay');
+            }
             clearInterval(interval);
             resolve();
           }
@@ -220,8 +233,11 @@
         i = 0;
         while (i < len) {
           aTweet = snapShot.snapshotItem(i);
-          await scrollTweetIntoView(aTweet);
           aTweet.classList.add('$wrvistited$');
+          if (debug) {
+            aTweet.classList.add('wr-debug-visited-thread-reply');
+          }
+          await scrollTweetIntoView(aTweet);
           yield aTweet;
           i += 1;
         }
@@ -235,14 +251,17 @@
     }
 
     _maybeClickThreadShowMore() {
-      if (
-        this.fullTweetOverlay.querySelector(
-          'button.ThreadedConversation-showMoreThreadsButton'
-        )
-      ) {
-        this.fullTweetOverlay
-          .querySelector('button.ThreadedConversation-showMoreThreadsButton')
-          .click();
+      const showMore = this.fullTweetOverlay.querySelector(
+        'button.ThreadedConversation-showMoreThreadsButton'
+      );
+      if (showMore) {
+        if (debug) {
+          showMore.classList.add('wr-debug-click');
+          showMore.click();
+          showMore.classList.remove('wr-debug-click');
+          return;
+        }
+        showMore.click();
       }
     }
 
@@ -254,10 +273,12 @@
       const overlay = document.querySelector(closeFullTweetSelector);
       return new Promise((resolve, reject) => {
         if (!overlay) return resolve();
+        if (debug) overlay.classList.add('wr-debug-click');
         overlay.click();
         let ninterval = setInterval(() => {
           if (document.baseURI === this._baseURI) {
             clearInterval(ninterval);
+            if (debug) overlay.classList.remove('wr-debug-click');
             resolve();
           }
         }, 1500);
@@ -301,10 +322,15 @@
     do {
       while (tweets.length > 0) {
         aTweet = new Tweet(tweets.shift(), baseURI);
+        if (debug) {
+          aTweet.tweet.classList.add('wr-debug-visited');
+        }
         await aTweet.scrollIntoView();
         yield aTweet.tweet;
-        if (aTweet.shouldViewFullTweet()) {
-          yield* aTweet.viewFullTweet();
+        if (aTweet.hasRepliedOrInThread()) {
+          yield* aTweet.viewRepliesOrThread();
+        } else {
+          yield* aTweet.viewRegularTweet();
         }
       }
       tweets = xpathQuerySelector(tweetXpath);
@@ -314,7 +340,6 @@
       }
     } while (tweets.length > 0 && canScrollMore());
   }
-
 
   window.$WRTweetIterator$ = timelineIterator(xpg, document.baseURI);
   window.$WRIteratorHandler$ = async function () {

@@ -1,4 +1,4 @@
-(async function(xpg) {
+(async function (xpg, debug = false) {
   if (
     typeof xpg !== 'function' ||
     xpg.toString().indexOf('[Command Line API]') === -1
@@ -9,7 +9,7 @@
      * @param {Element | Document} startElem
      * @return {Array<HTMLElement>}
      */
-    xpg = function(xpathQuery, startElem) {
+    xpg = function (xpathQuery, startElem) {
       if (startElem == null) {
         startElem = document;
       }
@@ -30,6 +30,14 @@
       return elements;
     };
   }
+
+  if (debug && document.getElementById('$wrStyle$') == null) {
+    const style = document.createElement('style');
+    style.id = '$wrStyle$';
+    style.innerText = '.wr-debug-visited {border: 6px solid #3232F1;} ';
+    document.head.appendChild(style);
+  }
+
 
   /**
    * @desc Retrieves the property of an object, or item in array at index, based
@@ -228,7 +236,7 @@
         reactInstance = this._reactInstanceFromDOMElem(node);
         if (!this.seenPostRows.has(reactInstance.key)) {
           this.seenPostRows.add(reactInstance.key);
-          renderedNodes.push({ node, reactInstance });
+          renderedNodes.push({node, reactInstance});
         }
       }
       return renderedNodes;
@@ -239,7 +247,7 @@
      * Instagram timeline.
      * @return {AsyncIterator<Element | Node>}
      */
-    async *postIterator() {
+    async* postIterator() {
       let currentPostRows = this.getRenderedPostRows();
       // consume rows until all posts have been loaded
       do {
@@ -264,13 +272,16 @@
      * @param {Array<{node: Element, reactInstance: Object}>} postRow
      * @return {AsyncIterator<Element | Node>}
      */
-    async *consumeRow(postRow) {
+    async* consumeRow(postRow) {
       let row, j, numPosts, post, posts;
       let i = 0,
         numRows = postRow.length;
       for (; i < numRows; ++i) {
         // scroll post row into view
         row = postRow[i];
+        if (debug) {
+          row.node.classList.add('wr-debug-visited');
+        }
         await this.scrollIntoView(row.node);
         posts = row.node.childNodes;
         numPosts = posts.length;
@@ -297,7 +308,7 @@
      */
     async handleMultiImagePost(post) {
       // open the post and get references to the DOM structure of the open post
-      const { portal, displayDiv } = await this.openPost(post);
+      const {portal, displayDiv} = await this.openPost(post);
       // get the direct React representation of the display div
       const displayDivReact = this._reactInstanceFromDOMElem(displayDiv);
       // get the number of images we must display from the child React component
@@ -330,7 +341,7 @@
      */
     async handleVideoPost(post) {
       // open the post and get references to the DOM structure of the open post
-      const { displayDiv } = await this.openPost(post);
+      const {displayDiv} = await this.openPost(post);
       // select and play the video. The video is a mp4 that is already loaded
       // need to only play it for the length of time we are visiting the post
       // just in case
@@ -388,7 +399,7 @@
       const displayDiv = portal.querySelector(
         this.selectors.multiImageDisplayDiv
       );
-      return { portal, displayDiv };
+      return {portal, displayDiv};
     }
 
     /**
@@ -536,7 +547,7 @@
         console.log(
           `isFetching=${this.isFetching}, hasNextPage=${
             this.hasNextPage
-          }, loadedCount=${this.loadedCount}`
+            }, loadedCount=${this.loadedCount}`
         );
       }
     }
@@ -582,7 +593,7 @@
   const instaPosts = new InstagramPosts(xpg);
   instaPosts.init();
   window.$WRTLIterator$ = instaPosts.postIterator();
-  window.$WRIteratorHandler$ = async function() {
+  window.$WRIteratorHandler$ = async function () {
     const next = await $WRTLIterator$.next();
     return next.done;
   };
