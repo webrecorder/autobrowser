@@ -27,6 +27,13 @@ matching:
       resource: 'instagramUser.js'
     match:
       regex: "^https://(www.)?instagram.com/[^/]+(/)?$"
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedNetIdle'
+    init:
+      resource: 'soundcloudArtist.js'
+    match:
+      regex: "^https://(www.)?soundcloud.com/[^/]+(/)?$"
 default:
   init:
     resource: 'autoscroll.js'

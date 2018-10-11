@@ -28,7 +28,7 @@ class CrawlerTab(BehaviorTab):
                 results = await self.client.Runtime.callFunctionOn(
                     self.href_fn, objectId=obj_id
                 )
-                href = results.get('result', {}).get('value')
+                href = results.get("result", {}).get("value")
                 if href is not None:
                     outlinks.append(href)
                 await self.client.Runtime.releaseObject(objectId=obj_id)
