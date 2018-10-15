@@ -130,14 +130,22 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """
         return monitor(self.client, *args, **kwargs)
 
-    async def evaluate_in_page(self, js_string: str) -> Dict:
+    async def evaluate_in_page(
+        self, js_string: str, contextId: Optional[Any] = None
+    ) -> Dict:
         """Evaluates the supplied string of JavaScript in the tab
 
         :param js_string: The string of JavaScript to be evaluated
         :return: The results of the evaluation if any
         """
         return await self.client.Runtime.evaluate(
-            js_string, userGesture=True, awaitPromise=True, includeCommandLineAPI=True
+            js_string,
+            contextId=contextId,
+            userGesture=True,
+            awaitPromise=True,
+            includeCommandLineAPI=True,
+            returnByValue=True,
+            generatePreview=True,
         )
 
     async def goto(self, url: str, **kwargs: Any) -> Dict:

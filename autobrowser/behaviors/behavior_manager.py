@@ -48,17 +48,20 @@ class BehaviorMatcher(MatchRule):
     behavior_config: Dict = attr.ib()
     behavior_class: Optional[Type["Behavior"]] = attr.ib(default=None)
 
-    def create_behavior(self, tab: "BaseAutoTab") -> "Behavior":
+    def create_behavior(
+        self, tab: "BaseAutoTab", cntx_id: Optional[int] = None
+    ) -> "Behavior":
         """Create the Behavior associated with the rule.
 
         :param tab: The tab the rule is for
+        :param cntx_id: The id of the tabs execution context
         :return: The instantiated Behavior
         """
         if self.behavior_class is None:
             self.behavior_class = load_behavior_class(
                 self.behavior_config.get("handler")
             )
-        return self.behavior_class(tab, self.behavior_config.get("init"))
+        return self.behavior_class(tab, self.behavior_config.get("init"), cntx_id)
 
     def __attrs_post_init__(self) -> None:
         """Since we are subclassing MatchRule we must do the super init call here"""
@@ -72,18 +75,42 @@ class _BehaviorManager(object):
     rules: List[BehaviorMatcher] = attr.ib()
     default_behavior_init: Tuple[Type["Behavior"], Dict] = attr.ib()
 
-    def behavior_for_url(self, url: str, tab: "BaseAutoTab") -> "Behavior":
-        """Retrieve the behavior for the supplied URL
+    def behavior_for_url_exact(
+        self, url: str, tab: "BaseAutoTab", cntx_id: Optional[int] = None
+    ) -> Optional["Behavior"]:
+        """Retrieve the behavior for the supplied URL exactly.
+
+        If no behavior's URL matches then None is returned
 
         :param url: The url to receive the Behavior class for
         :param tab: The browser tab the behavior is to run in
-        :return: The Behavior for the URL
+        :param cntx_id: Optional id of the JavaScript context
+        the behavior is to run in
+        :return: The Behavior for the URL or None indicating
+        no exact match
         """
         for rule in self.rules:
             if rule.applies(url):
-                return rule.create_behavior(tab)
+                return rule.create_behavior(tab, cntx_id=cntx_id)
+        return None
+
+    def behavior_for_url(
+        self, url: str, tab: "BaseAutoTab", cntx_id: Optional[int] = None
+    ) -> "Behavior":
+        """Retrieve the behavior for the supplied URL, if no behavior's
+        url matches then a default behavior is returned.
+
+        :param url: The url to receive the Behavior class for
+        :param tab: The browser tab the behavior is to run in
+        :param cntx_id: Optional id of the JavaScript context
+        the behavior is to run in
+        :return: The Behavior for the URL
+        """
+        matched_behavior = self.behavior_for_url_exact(url, tab, cntx_id=cntx_id)
+        if matched_behavior is not None:
+            return matched_behavior
         clazz, init = self.default_behavior_init
-        return clazz(tab, init)
+        return clazz(tab, init, cntx_id)
 
 
 def create_default_behavior_man() -> "_BehaviorManager":

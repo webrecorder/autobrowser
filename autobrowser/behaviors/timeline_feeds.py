@@ -18,10 +18,12 @@ class TimelineFeedBehavior(JSBasedBehavior):
         # check if we injected our setup code or not
         if not self._did_init:
             # did not so inject it
-            await self.tab.evaluate_in_page(self._resource)
+            await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
             self._did_init = True
         # get next timeline item
-        done = await self.tab.evaluate_in_page("window.$WRIteratorHandler$()")
+        done = await self.tab.evaluate_in_page(
+            "window.$WRIteratorHandler$()", contextId=self.contextId
+        )
         logger.debug(f"TimelineFeedBehavior done ? {done}")
         # if we are done then tell the tab we are done
         if done.get("result").get("value"):
@@ -41,10 +43,12 @@ class TimelineFeedNetIdle(JSBasedBehavior):
         # check if we injected our setup code or not
         if not self._did_init:
             # did not so inject it
-            await self.tab.evaluate_in_page(self._resource)
+            await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
             self._did_init = True
         # get next timeline item
-        next_state = await self.tab.evaluate_in_page("window.$WRIteratorHandler$()")
+        next_state = await self.tab.evaluate_in_page(
+            "window.$WRIteratorHandler$()", contextId=self.contextId
+        )
         logger.debug(f"TimelineFeedBehavior done ? {next_state}")
         # if we are done then tell the tab we are done
         result = next_state.get("result")

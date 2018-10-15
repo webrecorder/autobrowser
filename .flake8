@@ -16,4 +16,5 @@ exclude = .git,
         venv,
         dummy.py,
         ./_ab.py,
-        ./server.py
+        ./server.py,
+        simplechrome

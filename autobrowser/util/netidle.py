@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 import asyncio
 from asyncio import Future
-from typing import Optional, Set, Dict
+from typing import Optional, Set, Dict, List
 
 import async_timeout
 from cripy import Client
 from pyee import EventEmitter
 
-from .helper import Helper
+from .helper import Helper, ListenerDict
 
 __all__ = ["NetworkIdleMonitor", "monitor"]
 
@@ -20,7 +20,7 @@ class NetworkIdleMonitor(EventEmitter):
         self,
         client: Client,
         num_inflight: int = 2,
-        idle_time: int = 1,
+        idle_time: int = 2,
         global_wait: int = 60,
     ) -> None:
         """Construct a new Network Idle monitor
@@ -35,11 +35,11 @@ class NetworkIdleMonitor(EventEmitter):
         """
         self.loop = asyncio.get_event_loop()
         super().__init__(loop=self.loop)
-        self.client = client
+        self.client: Client = client
         self.requestIds: Set[str] = set()
-        self.num_inflight = num_inflight
-        self.idle_time = idle_time
-        self.global_wait = global_wait
+        self.num_inflight: int = num_inflight
+        self.idle_time: int = idle_time
+        self.global_wait: int = global_wait
         self._to: Optional[Future] = None
         self._idle_future: Optional[Future] = None
 
@@ -48,8 +48,8 @@ class NetworkIdleMonitor(EventEmitter):
         cls,
         client: Client,
         num_inflight: int = 2,
-        idle_time: int = 1,
-        global_wait: int = 40,
+        idle_time: int = 2,
+        global_wait: int = 60,
     ) -> Future:
         """Returns a future that resolves once network idle has been determined
 
@@ -67,33 +67,17 @@ class NetworkIdleMonitor(EventEmitter):
             idle_time=idle_time,
             global_wait=global_wait,
         )
-        return niw._create_idle_future()
+        return niw.create_idle_future()
 
-    def _create_idle_future(self) -> Future:
+    def create_idle_future(self) -> Future:
         """Creates and returns the global wait future that resolves once
         newtwork idle has been emitted or the global wait time has been
         reached
 
         :return: A future
         """
-        listeners = [
-            Helper.add_event_listener(
-                self.client, "Network.requestWillBeSent", self.req_started
-            ),
-            Helper.add_event_listener(
-                self.client, "Network.loadingFinished", self.req_finished
-            ),
-            Helper.add_event_listener(
-                self.client, "Network.loadingFailed", self.req_finished
-            ),
-        ]
         self._idle_future = self.loop.create_future()
-        self._idle_future.add_done_callback(
-            lambda f: Helper.remove_event_listeners(listeners)
-        )
-
         self.once("idle", self.idle_cb)
-
         return asyncio.ensure_future(self._global_to_wait(), loop=self.loop)
 
     def idle_cb(self) -> None:
@@ -105,13 +89,33 @@ class NetworkIdleMonitor(EventEmitter):
         """Coroutine that waits for the idle future to resolve or
         global wait time to be hit
         """
+        listeners: List[ListenerDict] = []
+        self._idle_future.add_done_callback(
+            lambda f: Helper.remove_event_listeners(listeners)
+        )
+        listeners.extend(
+            [
+                Helper.add_event_listener(
+                    self.client, "Network.requestWillBeSent", self.req_started
+                ),
+                Helper.add_event_listener(
+                    self.client, "Network.loadingFinished", self.req_finished
+                ),
+                Helper.add_event_listener(
+                    self.client, "Network.loadingFailed", self.req_finished
+                ),
+            ]
+        )
         try:
             async with async_timeout.timeout(self.global_wait, loop=self.loop):
                 await self._idle_future
-        except Exception as e:
+        except asyncio.TimeoutError as e:
             self.emit("idle")
 
         self.requestIds.clear()
+        if self._to is not None and not self._to.done():
+            self._to.cancel()
+            self._to = None
 
     async def _start_timeout(self) -> None:
         """Starts the idle time wait and if this Coroutine is not canceled
@@ -126,6 +130,7 @@ class NetworkIdleMonitor(EventEmitter):
 
         :param info: The request info supplied by the CDP
         """
+        # print(f'req_started {info["requestId"]}, {self.requestIds}')
         self.requestIds.add(info["requestId"])
         if len(self.requestIds) > self.num_inflight and self._to:
             self._to.cancel()
@@ -138,6 +143,7 @@ class NetworkIdleMonitor(EventEmitter):
         :param info: The request info supplied by the CDP
         """
         rid = info["requestId"]
+        # print(f'req_finished {info["requestId"]}, {self.requestIds}')
         if rid in self.requestIds:
             self.requestIds.remove(rid)
         if len(self.requestIds) <= self.num_inflight and self._to is None:
@@ -145,7 +151,7 @@ class NetworkIdleMonitor(EventEmitter):
 
 
 def monitor(
-    client: Client, num_inflight: int = 2, idle_time: int = 1, global_wait: int = 40
+    client: Client, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
 ) -> Future:
     """Returns a future that resolves once network idle has been determined
 

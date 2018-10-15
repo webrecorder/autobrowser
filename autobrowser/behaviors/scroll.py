@@ -66,6 +66,7 @@ class AutoScrollBehavior(JSBasedBehavior):
     async def run(self):
         logger.debug(f"AutoScrollBehavior.run")
         nif = self.tab.net_idle()
-        await self.tab.evaluate_in_page(self._resource)
+        await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
         await nif
         logger.debug(f"AutoScrollBehavior network_idle")
+        self._done = True

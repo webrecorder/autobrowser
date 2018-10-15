@@ -19,7 +19,7 @@ services:
   pywb:
     image: 'pwyb-local-dev:latest'
     working_dir: /tmp
-    command: wayback --live --proxy live --proxy-with-preserve-worker
+    command: wayback --live --proxy live --proxy-with-auto-fetch
   redis:
     image: 'redis:3.2.4'
   shepherd:

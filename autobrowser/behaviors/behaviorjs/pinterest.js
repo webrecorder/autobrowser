@@ -6,6 +6,38 @@
     document.head.appendChild(style);
   }
 
+  if (
+    typeof xpg !== 'function' ||
+    xpg.toString().indexOf('[Command Line API]') === -1
+  ) {
+    /**
+     * @desc Polyfill console api $x
+     * @param {string} xpathQuery
+     * @param {Element | Document} startElem
+     * @return {Array<HTMLElement>}
+     */
+    xpg = function (xpathQuery, startElem) {
+      if (startElem == null) {
+        startElem = document;
+      }
+      const snapShot = document.evaluate(
+        xpathQuery,
+        startElem,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null
+      );
+      const elements = [];
+      let i = 0;
+      let len = snapShot.snapshotLength;
+      while (i < len) {
+        elements.push(snapShot.snapshotItem(i));
+        i += 1;
+      }
+      return elements;
+    };
+  }
+
   const reactProps = {
     rootContainer: '_reactRootContainer',
     internalRoot: '_internalRoot',

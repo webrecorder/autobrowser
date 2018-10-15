@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, Optional
 
 import aiofiles
 import attr
@@ -24,6 +24,7 @@ class Behavior(object, metaclass=ABCMeta):
 
     tab: "BaseAutoTab" = attr.ib()
     conf: Dict = attr.ib(factory=dict)
+    contextId: Optional[int] = attr.ib(default=None)
     _has_resource: bool = attr.ib(default=False, init=False)
     _done: bool = attr.ib(default=False, init=False)
     _paused: bool = attr.ib(default=False, init=False)
@@ -55,7 +56,7 @@ class Behavior(object, metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    async def run(self):
+    async def run(self) -> bool:
         """Start the behaviors action"""
         pass
 

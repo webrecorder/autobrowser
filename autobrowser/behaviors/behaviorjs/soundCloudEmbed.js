@@ -1,4 +1,4 @@
-(function(xpg, debug = false) {
+(function (xpg, debug = false) {
   if (debug && document.getElementById('$wrStyle$') == null) {
     const style = document.createElement('style');
     style.id = '$wrStyle$';
@@ -39,15 +39,12 @@
   }
 
   const xpQueries = {
-    soundItem:
-      '//div[@class="userStreamItem" and not(contains(@class, "wrvistited"))]'
+    soundListItem: '//li[contains(@class, "soundsList__item") and not(contains(@class, "wrvistited"))]'
   };
 
   const selectors = {
-    loadMoreTracks: 'a.compactTrackList__moreLink',
-    playSingleTrack: 'a.playButton',
-    multiTrackItem: 'li.compactTrackList__item',
-    playMultiTrackTrack: 'div.compactTrackListItem.clickToPlay'
+    soundItem: 'div.soundItem',
+    singleTrackEmbedPlay: 'button[role="application"].playButton'
   };
 
   function scrollIntoView(elem, delayTime = 1000) {
@@ -63,71 +60,52 @@
     return new Promise(r => setTimeout(r, delayTime));
   }
 
-  function needToLoadMoreTracks(elem) {
-    return elem.querySelector(selectors.loadMoreTracks) != null;
-  }
-
-  function loadMoreTracks(elem) {
-    elem.querySelector(selectors.loadMoreTracks).click();
-    return delay(1500);
-  }
-
   function playTrack(elem, clickableSelector) {
     let theClickable = elem.querySelector(clickableSelector);
-    if (theClickable == null) return false;
+    if (theClickable == null)
+      return false;
     theClickable.click();
     return true;
   }
 
-  async function* playMultipleTracks(elem) {
-    const tracks = elem.querySelectorAll(selectors.multiTrackItem);
-    let i = 0;
-    let len = tracks.length;
-    if (len === 0) {
-      yield false;
-      return;
-    }
-    let playable;
-    for (; i < len; ++i) {
-      playable = tracks[i];
-      playable.classList.add('wrvistited');
-      if (debug) playable.classList.add('wr-debug-visited');
-      await scrollIntoView(playable);
-      yield playTrack(playable, selectors.playMultiTrackTrack);
-    }
+  function isMultiTrackEmbed(xpg) {
+    return xpg(xpQueries.soundListItem).length > 0;
   }
 
-  async function* vistSoundItems(xpg) {
-    let snapShot = xpg(xpQueries.soundItem);
+  async function* playMultiTracks(xpg) {
+    let snapShot = xpg(xpQueries.soundListItem);
     let soundItem;
     let i, len;
-    if (snapShot.length === 0) return;
+    if (snapShot.length === 0)
+      return;
     do {
       len = snapShot.length;
       i = 0;
       for (; i < len; ++i) {
         soundItem = snapShot[i];
         soundItem.classList.add('wrvistited');
-        if (debug) soundItem.classList.add('wr-debug-visited');
         await scrollIntoView(soundItem);
-        if (needToLoadMoreTracks(soundItem)) {
-          await loadMoreTracks(soundItem);
-          yield* playMultipleTracks(soundItem);
-        } else {
-          yield playTrack(soundItem, selectors.playSingleTrack);
-        }
+        yield playTrack(soundItem, selectors.soundItem);
       }
-      snapShot = xpg(xpQueries.soundItem);
+      snapShot = xpg(xpQueries.soundListItem);
       if (snapShot.length === 0) {
         await delay();
-        snapShot = xpg(xpQueries.soundItem);
+        snapShot = xpg(xpQueries.soundListItem);
       }
     } while (snapShot.length > 0);
   }
 
-  window.$WRIterator$ = vistSoundItems(xpg);
-  window.$WRIteratorHandler$ = async function() {
+  async function* embedTrackIterator(xpg) {
+    if (isMultiTrackEmbed(xpg)) {
+      yield* playMultiTracks(xpg);
+    } else {
+      yield playTrack(document, selectors.singleTrackEmbedPlay);
+    }
+  }
+
+  window.$WRIterator$ = embedTrackIterator(xpg);
+  window.$WRIteratorHandler$ = async function () {
     const results = await $WRIterator$.next();
-    return { done: results.done, wait: results.value };
+    return {done: results.done, wait: results.value};
   };
 })($x);
