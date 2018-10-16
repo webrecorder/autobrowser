@@ -57,7 +57,7 @@
     await scrollIntoView(elem);
     await clickWithDelay(elem);
   }
-  
+
   async function* clickRepliesToReplies(tlItem) {
     let rToR = tlItem.querySelectorAll(repliesToRepliesA);
     let i = 0;
@@ -83,6 +83,16 @@
       }
     }
     await delay();
+  }
+
+  let removedBadElem = false;
+
+  function maybeRemoveAnnoying() {
+    const maybeAnnoying = document.getElementById('pagelet_growth_expanding_cta');
+    if (maybeAnnoying) {
+      maybeAnnoying.remove();
+      removedBadElem = true;
+    }
   }
   
   async function* timelineIterator(xpg) {
@@ -115,11 +125,14 @@
       if (window.$WRSTP$) return;
     } while (timelineItems.length > 0 && canScrollMore());
   }
-  
+
   window.$WRTLIterator$ = timelineIterator(xpg);
   window.$WRIteratorHandler$ = async function () {
+    if (!removedBadElem) maybeRemoveAnnoying();
     const next = await $WRTLIterator$.next();
     return next.done;
   };
+
+  maybeRemoveAnnoying();
   
-})($x, false);
+})($x);

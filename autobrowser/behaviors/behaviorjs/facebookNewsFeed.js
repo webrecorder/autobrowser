@@ -102,6 +102,15 @@
    */
   const getFeedItems = (xpathG) => xpathG(feedItemSelector).filter(newsFeedItemFilter);
 
+  let removedBadElem = false;
+  function maybeRemoveAnnoying() {
+    const maybeAnnoying = document.getElementById('pagelet_growth_expanding_cta');
+    if (maybeAnnoying) {
+      maybeAnnoying.remove();
+      removedBadElem = true;
+    }
+  }
+
   /**
    * @desc Views each entry in a FB news.
    * (S1) Build initial set of to be feed items
@@ -140,7 +149,9 @@
 
   window.$WRNFIterator$ = newsFeedIterator(xpg);
   window.$WRIteratorHandler$ = async function() {
+    if (!removedBadElem) maybeRemoveAnnoying();
     const next = await $WRNFIterator$.next();
     return next.done;
   };
-})($x, true);
+  maybeRemoveAnnoying();
+})($x);

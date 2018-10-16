@@ -346,4 +346,4 @@
     const next = await $WRTweetIterator$.next();
     return next.done;
   };
-})($x, true);
+})($x);
