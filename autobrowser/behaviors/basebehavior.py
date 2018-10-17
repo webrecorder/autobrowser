@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional
 
@@ -14,7 +14,7 @@ __all__ = ["Behavior", "JSBasedBehavior"]
 
 
 @attr.dataclass
-class Behavior(object, metaclass=ABCMeta):
+class Behavior(ABC):
     """A behavior represents an action that is to be performed in the page (tab).
 
     This class defines the expected interface for all behaviors.
@@ -65,7 +65,7 @@ class Behavior(object, metaclass=ABCMeta):
 
 
 @attr.dataclass
-class JSBasedBehavior(Behavior, metaclass=ABCMeta):
+class JSBasedBehavior(Behavior, ABC):
     """Specialized subclass of Behavior that require JavaScript to operate.
 
     The name of the JavaScript file a subclassing behavior requires is expected to

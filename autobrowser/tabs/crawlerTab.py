@@ -23,8 +23,8 @@ class CrawlerTab(BaseAutoTab):
         super().__init__(*args, **kwargs)
         self.href_fn: str = "function () { return this.href; }"
         self.frame_manager: FrameManager = None
-        self._crawl_loop: Optional[Future] = None
-        self._frontier: Set[str] = set()
+        self.crawl_loop: Optional[Future] = None
+        self.frontier: Set[str] = set()
         self._outlinks: Optional[str] = None
         self._loop: AbstractEventLoop = asyncio.get_event_loop()
         self._max_behavior_time: int = 60
@@ -38,9 +38,9 @@ class CrawlerTab(BaseAutoTab):
             return
         await super().init()
         frame_tree = await self.client.Page.getFrameTree()
-        self.frame_manager = FrameManager(self.client, frame_tree, None)
-        self._crawl_loop = asyncio.ensure_future(
-            self._crawl(), loop=asyncio.get_event_loop()
+        self.frame_manager = FrameManager(self.client, frame_tree['frameTree'], None)
+        self.crawl_loop = asyncio.ensure_future(
+            self.crawl(), loop=asyncio.get_event_loop()
         )
         resource = str(Path(__file__).parent / "js" / "collectOutlinks.js")
         async with aiofiles.open(resource, "r") as iin:
@@ -48,17 +48,17 @@ class CrawlerTab(BaseAutoTab):
 
     async def close(self) -> None:
         await super().close()
-        if self._crawl_loop is not None:
-            self._crawl_loop.cancel()
+        if self.crawl_loop is not None:
+            self.crawl_loop.cancel()
 
     @property
     def frontier_size(self) -> int:
-        return len(self._frontier)
+        return len(self.frontier)
 
-    async def _crawl(self) -> None:
+    async def crawl(self) -> None:
         # loop until frontier is exhausted
         while self.frontier_size > 0:
-            n_url = self._frontier.pop()
+            n_url = self.frontier.pop()
             # navigate to next URL and wait until network idle
             await self.goto(n_url)
             await self.net_idle(idle_time=2, global_wait=90)
@@ -74,7 +74,7 @@ class CrawlerTab(BaseAutoTab):
                 )
                 outlinks = eval_res.get("result")
                 if outlinks.get("type") == "object":
-                    self._frontier.update(outlinks.get("value"))
+                    self.frontier.update(outlinks.get("value"))
                 # if the frames is the main frame then we get a behavior for it (default or matching)
                 if frame.url == mainFrame.url and frame == mainFrame:
                     behavior = BehaviorManager.behavior_for_url(
@@ -88,6 +88,7 @@ class CrawlerTab(BaseAutoTab):
                 # we have a behavior to be run so run it
                 if behavior is not None:
                     await self._timed_behavior(behavior)
+                print(self.frontier)
 
     async def _timed_behavior(self, behavior: Behavior) -> None:
         # check to see if the behavior requires resources and if so load them
@@ -118,3 +119,6 @@ class CrawlerTab(BaseAutoTab):
                     outlinks.append(href)
                 await self.client.Runtime.releaseObject(objectId=obj_id)
         await self.client.DOM.disable()
+
+    def __repr__(self) -> str:
+        return f"CrawlerTab({self.tab_data}"
