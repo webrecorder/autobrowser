@@ -101,7 +101,7 @@
    */
   const overlayTweetXpath = `//div[@id="permalink-overlay"]${tweetXpath}`;
 
-  function scrollTweetIntoView(aTweet, delayTime = 2500) {
+  function scrollTweetIntoView(aTweet, delayTime = 500) {
     aTweet.scrollIntoView({
       behavior: 'auto',
       block: 'center',
@@ -209,7 +209,7 @@
             clearInterval(interval);
             resolve();
           }
-        }, 1500);
+        }, 1000);
       });
     }
 
@@ -281,7 +281,7 @@
             if (debug) overlay.classList.remove('wr-debug-click');
             resolve();
           }
-        }, 1500);
+        }, 1000);
       });
     }
   }
@@ -339,6 +339,12 @@
         tweets = xpathQuerySelector(tweetXpath);
       }
     } while (tweets.length > 0 && canScrollMore());
+  }
+
+  class TimelineConsumer {
+    constructor() {
+    }
+
   }
 
   window.$WRTweetIterator$ = timelineIterator(xpg, document.baseURI);

@@ -54,7 +54,7 @@
   const delay = (delayTime = 3000) =>
     new Promise(r => setTimeout(r, delayTime));
 
-  function scrollIntoView(elem, delayTime = 2500) {
+  function scrollIntoView(elem, delayTime = 1500) {
     elem.scrollIntoView({
       behavior: 'auto',
       block: 'center',
@@ -63,7 +63,7 @@
     return delay(delayTime);
   }
 
-  function scrollIt(elem, delayTime = 2500) {
+  function scrollIt(elem, delayTime = 1500) {
     if (elem.offsetTop === 0) {
       return scrollIntoView(elem, delayTime);
     }

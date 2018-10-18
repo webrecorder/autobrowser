@@ -37,8 +37,9 @@ class CrawlerTab(BaseAutoTab):
         if self._running:
             return
         await super().init()
+        await self.client.Network.setCacheDisabled(True)
         frame_tree = await self.client.Page.getFrameTree()
-        self.frame_manager = FrameManager(self.client, frame_tree['frameTree'], None)
+        self.frame_manager = FrameManager(self.client, frame_tree["frameTree"], None)
         self.crawl_loop = asyncio.ensure_future(
             self.crawl(), loop=asyncio.get_event_loop()
         )
@@ -60,8 +61,11 @@ class CrawlerTab(BaseAutoTab):
         while self.frontier_size > 0:
             n_url = self.frontier.pop()
             # navigate to next URL and wait until network idle
-            await self.goto(n_url)
+            print(f"navigating to {n_url}")
+            results = await self.goto(n_url, transitionType="address_bar")
+            print(f'waiting for net idle {results}')
             await self.net_idle(idle_time=2, global_wait=90)
+            print('net idle')
             # get the url of the main (top) frame
             mainFrame = self.frame_manager.mainFrame
             # go through all frames in the page we are in
@@ -88,7 +92,7 @@ class CrawlerTab(BaseAutoTab):
                 # we have a behavior to be run so run it
                 if behavior is not None:
                     await self._timed_behavior(behavior)
-                print(self.frontier)
+            print('dumping frontier')
 
     async def _timed_behavior(self, behavior: Behavior) -> None:
         # check to see if the behavior requires resources and if so load them

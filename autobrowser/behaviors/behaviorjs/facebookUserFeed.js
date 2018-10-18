@@ -32,7 +32,7 @@
   const repliesToRepliesSpan = 'span.UFIReplySocialSentenceLinkText.UFIReplySocialSentenceVerified';
   
   
-  function scrollIntoView(elem, delayTime = 2500) {
+  function scrollIntoView(elem, delayTime = 1500) {
     elem.scrollIntoView({
       behavior: 'auto',
       block: 'center',
@@ -47,7 +47,7 @@
     window.scrollBy(0, rect.height + elem.offsetHeight);
   }
   
-  function clickWithDelay(elem, delayTime = 2500) {
+  function clickWithDelay(elem, delayTime = 1500) {
     elem.click();
     return delay(elem, delayTime)
   }
