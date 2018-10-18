@@ -1,14 +1,14 @@
 version: '2'
 services:
   driver:
-    build: ./
+    image: "autobrowserpy:latest"
     volumes:
       - './:/tmp'
     command: python -u /tmp/driver.py
     depends_on:
       - redis
   server:
-    build: ./
+    image: "autobrowserpy:latest"
     volumes:
       - './:/tmp'
     command: python -u /tmp/server.py

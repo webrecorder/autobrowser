@@ -21,7 +21,7 @@
         lastScrolled = Date.now();
       } else if (!lastScrolled || Date.now() - lastScrolled > scrollingTO) {
         if (scrollerInterval === undefined) {
-          return
+          return;
         }
         clearInterval(scrollerInterval);
         scrollerInterval = undefined;

@@ -1,10 +1,14 @@
 FROM python:3.7
 
-RUN pip install ruamel.yaml git+https://github.com/iipc/urlcanon.git attrs aioredis async-timeout aiohttp yarl gevent requests bottle jinja2 uvloop numpy redis ujson pyee aiofiles git+https://github.com/webrecorder/simplechrome.git@using-cripy
+COPY requirements.txt /temp/requirements.txt
+RUN cd /temp && pip install -r requirements.txt
+
 
 COPY chrome-remote-interface-py /tmp/chrome-remote-interface-py
+COPY simplechrome /tmp/simplechrome
 
 RUN cd /tmp/chrome-remote-interface-py && python setup.py install
+RUN cd /tmp/simplechrome && python setup.py install
 
 
 WORKDIR /tmp

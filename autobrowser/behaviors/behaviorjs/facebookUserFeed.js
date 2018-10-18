@@ -1,63 +1,133 @@
-// TODO(n0tan3rd): Expand comments and view them like twitter
-// TODO(n0tan3rd): Need better scrolling here
-(function viewNewsFeedSetup(xpg, debug = false) {
-  if (document.getElementById('$wrStyle$') == null) {
-    const style = document.createElement('style');
-    style.id = '$wrStyle$';
-    let sd = 'body, .wr-scroll-container { scroll-behavior: smooth }';
-    if (debug) {
-      sd += ' .wr-debug-visited {border: 6px solid #3232F1;}';
+(function runner(xpg, debug = false) {
+  function maybePolyfillXPG(cliXPG) {
+    if (
+      typeof cliXPG !== 'function' ||
+      cliXPG.toString().indexOf('[Command Line API]') === -1
+    ) {
+      return function(xpathQuery, startElem) {
+        if (startElem == null) {
+          startElem = document;
+        }
+        const snapShot = document.evaluate(
+          xpathQuery,
+          startElem,
+          null,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+          null
+        );
+        const elements = [];
+        let i = 0;
+        let len = snapShot.snapshotLength;
+        while (i < len) {
+          elements.push(snapShot.snapshotItem(i));
+          i += 1;
+        }
+        return elements;
+      };
     }
-    style.innerText = sd;
-    document.head.appendChild(style);
+    return cliXPG;
   }
-  
-  const canScrollMore = () =>
-    window.scrollY + window.innerHeight <
-    Math.max(
-      document.body.scrollHeight,
-      document.body.offsetHeight,
-      document.documentElement.clientHeight,
-      document.documentElement.scrollHeight,
-      document.documentElement.offsetHeight
-    );
-  
-  const userTimelineSelector =
-    '//div[contains(@class, "userContentWrapper") and not(contains(@class, "wrvistited"))]';
-  
-  const delay = (delayTime = 3000) => new Promise(r => setTimeout(r, delayTime));
-  
-  const moreReplies = 'a[role="button"].UFIPagerLink';
-  const repliesToRepliesA = 'a[role="button"].UFICommentLink';
-  const repliesToRepliesSpan = 'span.UFIReplySocialSentenceLinkText.UFIReplySocialSentenceVerified';
-  
-  
-  function scrollIntoView(elem, delayTime = 1500) {
+  function getById(id) {
+    return document.getElementById(id);
+  }
+  function maybeRemoveElemById(id) {
+    const elem = getById(id);
+    let removed = false;
+    if (elem) {
+      elem.remove();
+      removed = true;
+    }
+    return removed;
+  }
+  function markElemAsVisited(elem, marker = 'wrvistited') {
+    if (elem != null) {
+      elem.classList.add(marker);
+    }
+  }
+  function addBehaviorStyle(styleDef) {
+    if (document.getElementById('$wrStyle$') == null) {
+      const style = document.createElement('style');
+      style.id = '$wrStyle$';
+      style.textContent = styleDef;
+      document.head.appendChild(style);
+    }
+  }
+
+  function delay(delayTime = 3000) {
+    return new Promise(resolve => {
+      setTimeout(resolve, delayTime);
+    });
+  }
+
+  function scrollIntoView(elem) {
+    if (elem == null) return;
     elem.scrollIntoView({
       behavior: 'auto',
       block: 'center',
       inline: 'center'
     });
+  }
+  function scrollIntoViewWithDelay(elem, delayTime = 1000) {
+    scrollIntoView(elem);
     return delay(delayTime);
   }
-  
   function scrollDownByElemHeight(elem) {
     if (!elem) return;
-    let rect = elem.getBoundingClientRect();
+    const rect = elem.getBoundingClientRect();
     window.scrollBy(0, rect.height + elem.offsetHeight);
   }
-  
-  function clickWithDelay(elem, delayTime = 1500) {
-    elem.click();
-    return delay(elem, delayTime)
+  function scrollDownByElemHeightWithDelay(elem, delayTime = 1000) {
+    scrollDownByElemHeight(elem);
+    return delay(delayTime);
   }
-  
-  async function scrollIntoViewAndClick(elem) {
-    if (!elem) return;
-    await scrollIntoView(elem);
-    await clickWithDelay(elem);
+  function canScrollMore() {
+    return (
+      window.scrollY + window.innerHeight <
+      Math.max(
+        document.body.scrollHeight,
+        document.body.offsetHeight,
+        document.documentElement.clientHeight,
+        document.documentElement.scrollHeight,
+        document.documentElement.offsetHeight
+      )
+    );
   }
 
+  function click(elem) {
+    let clicked = false;
+    if (elem != null) {
+      elem.dispatchEvent(
+        new MouseEvent('mouseover', {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        })
+      );
+      elem.click();
+      clicked = true;
+    }
+    return clicked;
+  }
+  async function clickWithDelay(elem, delayTime = 1000) {
+    let clicked = click(elem);
+    if (clicked) {
+      await delay(delayTime);
+    }
+    return clicked;
+  }
+  function scrollIntoViewAndClickWithDelay(elem, delayTime = 1000) {
+    scrollIntoView(elem);
+    return clickWithDelay(elem, delayTime);
+  }
+
+  addBehaviorStyle('.wr-debug-visited {border: 6px solid #3232F1;}');
+  const userTimelineSelector =
+    '//div[contains(@class, "userContentWrapper") and not(contains(@class, "wrvistited"))]';
+  const moreReplies = 'a[role="button"].UFIPagerLink';
+  const repliesToRepliesA = 'a[role="button"].UFICommentLink';
+  const removeAnnoyingElemId = 'pagelet_growth_expanding_cta';
+  const delayTime = 1500;
+  const loadDelayTime = 3000;
   async function* clickRepliesToReplies(tlItem) {
     let rToR = tlItem.querySelectorAll(repliesToRepliesA);
     let i = 0;
@@ -66,7 +136,7 @@
     while (i < length) {
       rtr = rToR[i];
       if (debug) rtr.classList.add('wr-debug-visited');
-      await scrollIntoViewAndClick(rtr);
+      await scrollIntoViewAndClickWithDelay(rtr, delayTime);
       yield rtr;
       i += 1;
     }
@@ -77,62 +147,45 @@
       while (i < length) {
         rtr = rToR[i];
         if (debug) rtr.classList.add('wr-debug-visited');
-        await scrollIntoViewAndClick(rtr);
+        await scrollIntoViewAndClickWithDelay(rtr, delayTime);
         yield rToR;
         i += 1;
       }
     }
-    await delay();
   }
-
-  let removedBadElem = false;
-
-  function maybeRemoveAnnoying() {
-    const maybeAnnoying = document.getElementById('pagelet_growth_expanding_cta');
-    if (maybeAnnoying) {
-      maybeAnnoying.remove();
-      removedBadElem = true;
-    }
-  }
-  
-  async function* timelineIterator(xpg) {
-    let timelineItems = xpg(userTimelineSelector);
+  async function* makeIterator(xpathGenerator) {
+    let timelineItems = xpathGenerator(userTimelineSelector);
     let tlItem;
     let replies;
     do {
       while (timelineItems.length > 0) {
         tlItem = timelineItems.shift();
-        if (window.$WRSTP$) return;
         if (debug) tlItem.classList.add('wr-debug-visited');
-        await scrollIntoView(tlItem);
-        tlItem.classList.add('wrvistited');
+        await scrollIntoViewWithDelay(tlItem, delayTime);
+        markElemAsVisited(tlItem);
         yield tlItem;
         replies = tlItem.querySelector(moreReplies);
         if (replies) {
           if (debug) replies.classList.add('wr-debug-visited');
-          await scrollIntoViewAndClick(replies);
+          await scrollIntoViewAndClickWithDelay(replies, delayTime);
           yield replies;
         }
         yield* clickRepliesToReplies(tlItem);
       }
-      if (window.$WRSTP$) return;
-      timelineItems = xpg(userTimelineSelector);
+      timelineItems = xpathGenerator(userTimelineSelector);
       if (timelineItems.length === 0) {
-        scrollDownByElemHeight(tlItem);
-        await delay();
-        timelineItems = xpg(userTimelineSelector);
+        await scrollDownByElemHeightWithDelay(tlItem, loadDelayTime);
+        timelineItems = xpathGenerator(userTimelineSelector);
       }
-      if (window.$WRSTP$) return;
     } while (timelineItems.length > 0 && canScrollMore());
   }
-
-  window.$WRTLIterator$ = timelineIterator(xpg);
-  window.$WRIteratorHandler$ = async function () {
-    if (!removedBadElem) maybeRemoveAnnoying();
+  let removedAnnoying = maybeRemoveElemById(removeAnnoyingElemId);
+  window.$WRTLIterator$ = makeIterator(maybePolyfillXPG(xpg));
+  window.$WRIteratorHandler$ = async function() {
+    if (!removedAnnoying) {
+      removedAnnoying = maybeRemoveElemById(removeAnnoyingElemId);
+    }
     const next = await $WRTLIterator$.next();
     return next.done;
   };
-
-  maybeRemoveAnnoying();
-  
 })($x);

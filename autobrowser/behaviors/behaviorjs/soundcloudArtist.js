@@ -1,84 +1,112 @@
-(function(xpg, debug = false) {
-  if (debug && document.getElementById('$wrStyle$') == null) {
-    const style = document.createElement('style');
-    style.id = '$wrStyle$';
-    style.innerText = '.wr-debug-visited {border: 6px solid #3232F1;} ';
-    document.head.appendChild(style);
+(function runner(xpg, debug = false) {
+  function delay(delayTime = 3000) {
+    return new Promise(resolve => {
+      setTimeout(resolve, delayTime);
+    });
   }
 
-  if (
-    typeof xpg !== 'function' ||
-    xpg.toString().indexOf('[Command Line API]') === -1
-  ) {
-    /**
-     * @desc Polyfill console api $x
-     * @param {string} xpathQuery
-     * @param {Element | Document} startElem
-     * @return {Array<HTMLElement>}
-     */
-    xpg = function (xpathQuery, startElem) {
-      if (startElem == null) {
-        startElem = document;
-      }
-      const snapShot = document.evaluate(
-        xpathQuery,
-        startElem,
-        null,
-        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
-        null
+  function scrollIntoView(elem) {
+    if (elem == null) return;
+    elem.scrollIntoView({
+      behavior: 'auto',
+      block: 'center',
+      inline: 'center'
+    });
+  }
+  function scrollIntoViewWithDelay(elem, delayTime = 1000) {
+    scrollIntoView(elem);
+    return delay(delayTime);
+  }
+
+  function click(elem) {
+    let clicked = false;
+    if (elem != null) {
+      elem.dispatchEvent(
+        new MouseEvent('mouseover', {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        })
       );
-      const elements = [];
-      let i = 0;
-      let len = snapShot.snapshotLength;
-      while (i < len) {
-        elements.push(snapShot.snapshotItem(i));
-        i += 1;
-      }
-      return elements;
-    };
+      elem.click();
+      clicked = true;
+    }
+    return clicked;
+  }
+  async function clickWithDelay(elem, delayTime = 1000) {
+    let clicked = click(elem);
+    if (clicked) {
+      await delay(delayTime);
+    }
+    return clicked;
+  }
+  function selectElemFromAndClick(selectFrom, selector) {
+    return click(selectFrom.querySelector(selector));
+  }
+  function selectElemFromAndClickWithDelay(
+    selectFrom,
+    selector,
+    delayTime = 1000
+  ) {
+    return clickWithDelay(selectFrom.querySelector(selector), delayTime);
   }
 
+  function maybePolyfillXPG(cliXPG) {
+    if (
+      typeof cliXPG !== 'function' ||
+      cliXPG.toString().indexOf('[Command Line API]') === -1
+    ) {
+      return function(xpathQuery, startElem) {
+        if (startElem == null) {
+          startElem = document;
+        }
+        const snapShot = document.evaluate(
+          xpathQuery,
+          startElem,
+          null,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+          null
+        );
+        const elements = [];
+        let i = 0;
+        let len = snapShot.snapshotLength;
+        while (i < len) {
+          elements.push(snapShot.snapshotItem(i));
+          i += 1;
+        }
+        return elements;
+      };
+    }
+    return cliXPG;
+  }
+  function markElemAsVisited(elem, marker = 'wrvistited') {
+    if (elem != null) {
+      elem.classList.add(marker);
+    }
+  }
+  function addBehaviorStyle(styleDef) {
+    if (document.getElementById('$wrStyle$') == null) {
+      const style = document.createElement('style');
+      style.id = '$wrStyle$';
+      style.textContent = styleDef;
+      document.head.appendChild(style);
+    }
+  }
+
+  addBehaviorStyle('.wr-debug-visited {border: 6px solid #3232F1;}');
   const xpQueries = {
     soundItem:
       '//div[@class="userStreamItem" and not(contains(@class, "wrvistited"))]'
   };
-
   const selectors = {
     loadMoreTracks: 'a.compactTrackList__moreLink',
     playSingleTrack: 'a.playButton',
     multiTrackItem: 'li.compactTrackList__item',
     playMultiTrackTrack: 'div.compactTrackListItem.clickToPlay'
   };
-
-  function scrollIntoView(elem, delayTime = 1000) {
-    elem.scrollIntoView({
-      behavior: 'auto',
-      block: 'center',
-      inline: 'center'
-    });
-    return new Promise(r => setTimeout(r, delayTime));
-  }
-
-  function delay(delayTime = 3000) {
-    return new Promise(r => setTimeout(r, delayTime));
-  }
-
   function needToLoadMoreTracks(elem) {
     return elem.querySelector(selectors.loadMoreTracks) != null;
   }
-
-  function loadMoreTracks(elem) {
-    elem.querySelector(selectors.loadMoreTracks).click();
-    return delay(1500);
-  }
-
-  function playTrack(elem, clickableSelector) {
-    let theClickable = elem.querySelector(clickableSelector);
-    if (theClickable == null) return false;
-    theClickable.click();
-    return true;
-  }
-
   async function* playMultipleTracks(elem) {
     const tracks = elem.querySelectorAll(selectors.multiTrackItem);
     let i = 0;
@@ -90,15 +118,14 @@
     let playable;
     for (; i < len; ++i) {
       playable = tracks[i];
-      playable.classList.add('wrvistited');
+      markElemAsVisited(playable);
       if (debug) playable.classList.add('wr-debug-visited');
-      await scrollIntoView(playable);
-      yield playTrack(playable, selectors.playMultiTrackTrack);
+      await scrollIntoViewWithDelay(playable);
+      yield selectElemFromAndClick(playable, selectors.playMultiTrackTrack);
     }
   }
-
-  async function* vistSoundItems(xpg) {
-    let snapShot = xpg(xpQueries.soundItem);
+  async function* vistSoundItems(xpathGenerator) {
+    let snapShot = xpathGenerator(xpQueries.soundItem);
     let soundItem;
     let i, len;
     if (snapShot.length === 0) return;
@@ -107,25 +134,27 @@
       i = 0;
       for (; i < len; ++i) {
         soundItem = snapShot[i];
-        soundItem.classList.add('wrvistited');
+        markElemAsVisited(soundItem);
         if (debug) soundItem.classList.add('wr-debug-visited');
-        await scrollIntoView(soundItem);
+        await scrollIntoViewWithDelay(soundItem);
         if (needToLoadMoreTracks(soundItem)) {
-          await loadMoreTracks(soundItem);
+          await selectElemFromAndClickWithDelay(
+            soundItem,
+            selectors.loadMoreTracks
+          );
           yield* playMultipleTracks(soundItem);
         } else {
-          yield playTrack(soundItem, selectors.playSingleTrack);
+          yield selectElemFromAndClick(soundItem, selectors.playSingleTrack);
         }
       }
-      snapShot = xpg(xpQueries.soundItem);
+      snapShot = xpathGenerator(xpQueries.soundItem);
       if (snapShot.length === 0) {
         await delay();
-        snapShot = xpg(xpQueries.soundItem);
+        snapShot = xpathGenerator(xpQueries.soundItem);
       }
     } while (snapShot.length > 0);
   }
-
-  window.$WRIterator$ = vistSoundItems(xpg);
+  window.$WRIterator$ = vistSoundItems(maybePolyfillXPG(xpg));
   window.$WRIteratorHandler$ = async function() {
     const results = await $WRIterator$.next();
     return { done: results.done, wait: results.value };
