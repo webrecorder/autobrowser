@@ -3,7 +3,7 @@ workdir="$PWD"
 
 buildBehaviorsImage () {
   echo "Building Behaviors image"
-  docker build "${workdir}/wr-behaviors/Dockerfile" -t wrbehaviors:latest
+  docker build -f "${workdir}/wr-behaviors/Dockerfile" -t wrbehaviors:latest "${workdir}/wr-behaviors"
   echo "Built Behaviors image"
 }
 
