@@ -39,16 +39,14 @@ DEFAULT_ARGS = [
     "--use-mock-keychain",
     "--mute-audio",
     "--autoplay-policy=no-user-gesture-required",
-    "about:blank"
+    "about:blank",
 ]
 
 
 @asynccontextmanager
 async def launch_chrome(loop: AbstractEventLoop) -> Dict[str, str]:
     proc = await asyncio.create_subprocess_exec(
-        *DEFAULT_ARGS,
-        stderr=asyncio.subprocess.PIPE,
-        loop=loop,
+        *DEFAULT_ARGS, stderr=asyncio.subprocess.PIPE, loop=loop
     )
     while True:
         line = await proc.stderr.readline()
@@ -57,7 +55,7 @@ async def launch_chrome(loop: AbstractEventLoop) -> Dict[str, str]:
             break
     the_tab: Dict[str, str] = None
     for tab in await Client.List():
-        if tab['type'] == 'page':
+        if tab["type"] == "page":
             the_tab = tab
     if the_tab is not None:
         yield the_tab
@@ -66,15 +64,20 @@ async def launch_chrome(loop: AbstractEventLoop) -> Dict[str, str]:
 
 async def crawl_baby_crawl(loop: AbstractEventLoop) -> None:
     async with launch_chrome(loop) as tab_info:
-        crawl_tab = CrawlerTab.create(None, tab_info)
+        crawl_tab = None
         try:
-            crawl_tab.frontier.add('https://twitter.com/webrecorder_io')
+            crawl_tab = CrawlerTab.create(
+                None,
+                tab_info,
+                frontier=dict(depth=2, seed_list=["https://twitter.com/webrecorder_io"]),
+            )
             await crawl_tab.init()
             async with timeout(120, loop=loop) as to:
                 await crawl_tab.crawl_loop
         except Exception as e:
             traceback.print_exc()
-        await crawl_tab.close()
+        if crawl_tab:
+            await crawl_tab.close()
 
 
 if __name__ == "__main__":

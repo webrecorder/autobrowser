@@ -23,7 +23,7 @@ logger = logging.getLogger("autobrowser")
 class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
-    def __init__(self, browser: "BaseAutoBrowser", tab_data: Dict[str, str]) -> None:
+    def __init__(self, browser: "BaseAutoBrowser", tab_data: Dict[str, str], **kwargs) -> None:
         super().__init__(loop=asyncio.get_event_loop())
         self.browser: "BaseAutoBrowser" = browser
         self.tab_data: Dict[str, str] = tab_data

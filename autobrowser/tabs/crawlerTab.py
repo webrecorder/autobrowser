@@ -11,6 +11,7 @@ from simplechrome.frame_manager import FrameManager
 
 from autobrowser.behaviors.basebehavior import Behavior
 from autobrowser.behaviors.behavior_manager import BehaviorManager
+from autobrowser.frontier import Frontier
 from .basetab import BaseAutoTab
 
 __all__ = ["CrawlerTab"]
@@ -22,10 +23,10 @@ class CrawlerTab(BaseAutoTab):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.href_fn: str = "function () { return this.href; }"
+        self.outlink_expression: str = "window.$wbOutlinks$.toJSON()"
         self.frame_manager: FrameManager = None
         self.crawl_loop: Optional[Future] = None
-        self.frontier: Set[str] = set()
-        self._outlinks: Optional[str] = None
+        self.frontier: Frontier = Frontier.init(**kwargs.get("frontier"))
         self._loop: AbstractEventLoop = asyncio.get_event_loop()
         self._max_behavior_time: int = 60
 
@@ -43,9 +44,9 @@ class CrawlerTab(BaseAutoTab):
         self.crawl_loop = asyncio.ensure_future(
             self.crawl(), loop=asyncio.get_event_loop()
         )
-        resource = str(Path(__file__).parent / "js" / "collectOutlinks.js")
-        async with aiofiles.open(resource, "r") as iin:
-            self._outlinks = await iin.read()
+        dir_path = Path(__file__).parent
+        async with aiofiles.open(str(dir_path / "js" / "nice.js"), "r") as iin:
+            await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
 
     async def close(self) -> None:
         await super().close()
@@ -53,46 +54,33 @@ class CrawlerTab(BaseAutoTab):
             self.crawl_loop.cancel()
 
     @property
-    def frontier_size(self) -> int:
-        return len(self.frontier)
+    def frontier_exhausted(self) -> bool:
+        return self.frontier.exhausted
 
     async def crawl(self) -> None:
+        print(self.frontier)
         # loop until frontier is exhausted
-        while self.frontier_size > 0:
+        while not self.frontier.exhausted:
             n_url = self.frontier.pop()
             # navigate to next URL and wait until network idle
             print(f"navigating to {n_url}")
             results = await self.goto(n_url, transitionType="address_bar")
-            print(f'waiting for net idle {results}')
+            print(f"waiting for net idle {results}")
             await self.net_idle(idle_time=2, global_wait=90)
-            print('net idle')
+            print("net idle")
             # get the url of the main (top) frame
-            mainFrame = self.frame_manager.mainFrame
-            # go through all frames in the page we are in
-            for frame in self.frame_manager.frames():
-                # get the frames JavaScript execution context
-                ex_cntx = await frame.executionContext()
-                # get outlinks from it
-                eval_res = await self.evaluate_in_page(
-                    self._outlinks, contextId=ex_cntx.id
-                )
-                outlinks = eval_res.get("result")
-                if outlinks.get("type") == "object":
-                    self.frontier.update(outlinks.get("value"))
-                # if the frames is the main frame then we get a behavior for it (default or matching)
-                if frame.url == mainFrame.url and frame == mainFrame:
-                    behavior = BehaviorManager.behavior_for_url(
-                        frame.url, self, ex_cntx.id
-                    )
-                else:
-                    # otherwise only get a behavior that matches the URL of the frame exactly
-                    behavior = BehaviorManager.behavior_for_url_exact(
-                        frame.url, self, ex_cntx.id
-                    )
-                # we have a behavior to be run so run it
-                if behavior is not None:
-                    await self._timed_behavior(behavior)
-            print('dumping frontier')
+            ex_cntx = await self.frame_manager.mainFrame.executionContext()
+            behavior = BehaviorManager.behavior_for_url(
+                self.frame_manager.mainFrame.url, self, ex_cntx.id
+            )
+            print(f"running behavior {behavior}")
+            # we have a behavior to be run so run it
+            if behavior is not None:
+                await self._timed_behavior(behavior)
+            out_links = await self.evaluate_in_page(self.outlink_expression)
+            self.frontier.add_all(
+                out_links.get("result", {}).get("value", [])
+            )
 
     async def _timed_behavior(self, behavior: Behavior) -> None:
         # check to see if the behavior requires resources and if so load them

@@ -3,13 +3,13 @@ workdir="$PWD"
 
 buildBehaviorsImage () {
   echo "Building Behaviors image"
-  docker build -f "${workdir}/wr-behaviors/Dockerfile" -t wrbehaviors:latest "${workdir}/wr-behaviors"
+  docker build -f "${workdir}/wr-behaviors/Dockerfile.mountable" -t wrbehaviors:latest "${workdir}/wr-behaviors"
   echo "Built Behaviors image"
 }
 
 buildBehaviors () {
   echo "Building behaviors"
-  docker run --rm -v "${workdir}/autobrowser/behaviors/behaviorjs:/dist" -i -t wrbehaviors:latest
+  docker run --rm -v "${workdir}/autobrowser/behaviors/behaviorjs:/dist" -v "${workdir}/wr-behaviors/src:/src" -i -t wrbehaviors:latest
   echo "Built behaviors"
 }
 

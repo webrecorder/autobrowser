@@ -1,43 +1,235 @@
-// TODO(n0tan3rd): Expand comments and view them like twitter
-(function viewNewsFeedSetup(xpg, debug = false) {
-  if (
-    typeof xpg !== 'function' ||
-    xpg.toString().indexOf('[Command Line API]') === -1
-  ) {
-    /**
-     * @desc Polyfill console api $x
-     * @param {string} xpathQuery
-     * @param {Element | Document} startElem
-     * @return {Array<HTMLElement>}
-     */
-    xpg = function(xpathQuery, startElem) {
-      if (startElem == null) {
-        startElem = document;
-      }
-      const snapShot = document.evaluate(
-        xpathQuery,
-        startElem,
-        null,
-        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
-        null
-      );
-      const elements = [];
-      let i = 0;
-      let len = snapShot.snapshotLength;
-      while (i < len) {
-        elements.push(snapShot.snapshotItem(i));
-        i += 1;
-      }
-      return elements;
-    };
+(function runner(xpg, debug) {
+  /**
+   * @param {string} xpathQuery
+   * @param {Element | Document} startElem
+   * @return {XPathResult}
+   */
+
+  /**
+   * @param {function(string, ?HTMLElement | ?Document)} cliXPG
+   * @return {function(string, ): Array<HTMLElement>}
+   */
+  function maybePolyfillXPG(cliXPG) {
+    if (
+      typeof cliXPG !== 'function' ||
+      cliXPG.toString().indexOf('[Command Line API]') === -1
+    ) {
+      return function(xpathQuery, startElem) {
+        if (startElem == null) {
+          startElem = document;
+        }
+        const snapShot = document.evaluate(
+          xpathQuery,
+          startElem,
+          null,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+          null
+        );
+        const elements = [];
+        let i = 0;
+        let len = snapShot.snapshotLength;
+        while (i < len) {
+          elements.push(snapShot.snapshotItem(i));
+          i += 1;
+        }
+        return elements;
+      };
+    }
+    return cliXPG;
   }
 
-  if (document.getElementById('$wrStyle$') == null) {
-    const style = document.createElement('style');
-    style.id = '$wrStyle$';
-    style.innerText = 'body, .wr-scroll-container { scroll-behavior: smooth }';
-    document.head.appendChild(style);
+  /**
+   * @param {string} id
+   * @returns {boolean}
+   */
+  function maybeRemoveElemById(id) {
+    const elem = document.getElementById(id);
+    let removed = false;
+    if (elem) {
+      elem.remove();
+      removed = true;
+    }
+    return removed;
   }
+
+  /**
+   * @param {HTMLElement | Element | Node} elem
+   * @param {string} [marker = 'wrvistited']
+   */
+  function markElemAsVisited(elem, marker = 'wrvistited') {
+    if (elem != null) {
+      elem.classList.add(marker);
+    }
+  }
+
+  /**
+   * @param {number} [delayTime = 3000]
+   * @returns {Promise<void>}
+   */
+  function delay(delayTime = 3000) {
+    return new Promise(resolve => {
+      setTimeout(resolve, delayTime);
+    });
+  }
+
+  /**
+   * @param {Element | HTMLElement | Node} elem - The element to be scrolled into view
+   */
+  function scrollIntoView(elem) {
+    if (elem == null) return;
+    elem.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'center'
+    });
+  }
+
+  /**
+   * @desc Scrolls the window by the supplied elements offsetTop. If the elements
+   * offsetTop is zero then {@link scrollIntoView} is used
+   * @param {Element | HTMLElement | Node} elem - The element who's offsetTop will be used to scroll by
+   */
+  function scrollToElemOffset(elem) {
+    if (elem.offsetTop === 0) {
+      return scrollIntoView(elem);
+    }
+    window.scrollTo({
+      behavior: 'auto',
+      left: 0,
+      top: elem.offsetTop
+    });
+  }
+
+  /**
+   * @desc Scrolls the window by the supplied elements offsetTop. If the elements
+   * offsetTop is zero then {@link scrollIntoView} is used
+   * @param {Element | HTMLElement | Node} elem - The element who's offsetTop will be used to scroll by
+   * @param {number} [delayTime = 1000] - How long is the delay
+   * @returns {Promise<void>}
+   */
+  function scrollToElemOffsetWithDelay(elem, delayTime = 1000) {
+    scrollToElemOffset(elem);
+    return delay(delayTime);
+  }
+
+  /**
+   * @desc Determines if we can scroll any more
+   * @return {boolean}
+   */
+  function canScrollMore() {
+    return (
+      window.scrollY + window.innerHeight <
+      Math.max(
+        document.body.scrollHeight,
+        document.body.offsetHeight,
+        document.documentElement.clientHeight,
+        document.documentElement.scrollHeight,
+        document.documentElement.offsetHeight
+      )
+    );
+  }
+
+  class OutLinkCollector {
+    constructor() {
+      /**
+       * @type {Set<string>}
+       */
+      this.outlinks = new Set();
+      this.ignored = [
+        'about:',
+        'data:',
+        'mailto:',
+        'javascript:',
+        'js:',
+        '{',
+        '*',
+        'ftp:',
+        'tel:'
+      ];
+      this.good = { 'http:': true, 'https:': true };
+      this.urlParer = new URL('about:blank');
+      this.outlinkSelector = 'a[href], area[href]';
+    }
+
+    shouldIgnore(test) {
+      let ignored = false;
+      let i = this.ignored.length;
+      while (i--) {
+        if (test.startsWith(this.ignored[i])) {
+          ignored = true;
+          break;
+        }
+      }
+      if (!ignored) {
+        let parsed = true;
+        try {
+          this.urlParer.href = test;
+        } catch (error) {
+          parsed = false;
+        }
+        return !(parsed && this.good[this.urlParer.protocol]);
+      }
+      return ignored;
+    }
+
+    collectFromDoc() {
+      this.addOutLinks(document.querySelectorAll(this.outlinkSelector));
+    }
+
+    collectFrom(queryFrom) {
+      this.addOutLinks(queryFrom.querySelectorAll(this.outlinkSelector));
+    }
+
+    addOutLinks(outlinks) {
+      let href;
+      let i = outlinks.length;
+      while (i--) {
+        href = outlinks[i].href.trim();
+        if (href && !this.outlinks.has(href) && !this.shouldIgnore(href)) {
+          this.outlinks.add(href);
+        }
+      }
+    }
+
+    /**
+     * @param {HTMLAnchorElement|HTMLAreaElement|string} elemOrString
+     */
+    addOutlink(elemOrString) {
+      const href = (elemOrString.href || elemOrString).trim();
+      if (href && !this.outlinks.has(href) && !this.shouldIgnore(href)) {
+        this.outlinks.add(href);
+      }
+    }
+
+    /**
+     * @return {string[]}
+     */
+    outLinkArray() {
+      return Array.from(this.outlinks);
+    }
+
+    /**
+     * @return {string[]}
+     */
+    toJSON() {
+      return this.outLinkArray();
+    }
+
+    /**
+     * @return {string[]}
+     */
+    valueOf() {
+      return this.outLinkArray();
+    }
+  }
+
+  const OLC = new OutLinkCollector();
+
+  Object.defineProperty(window, '$wbOutlinks$', {
+    value: OLC,
+    writable: false,
+    enumerable: false
+  });
 
   /**
    * @desc This xpath query is based on the fact that the first item in a FB news feed
@@ -49,66 +241,19 @@
    * @type {string}
    */
   const feedItemSelector =
-    '//div[starts-with(@id,"hyperfeed_story_id") and not(contains(@class, "$wrvistited$"))]';
+    '//div[starts-with(@id,"hyperfeed_story_id") and not(contains(@class, "wrvistited"))]';
 
-  const delay = (delayTime = 3000) =>
-    new Promise(r => setTimeout(r, delayTime));
+  const scrollDelay = 1500;
 
-  function scrollIntoView(elem, delayTime = 1500) {
-    elem.scrollIntoView({
-      behavior: 'auto',
-      block: 'center',
-      inline: 'center'
-    });
-    return delay(delayTime);
-  }
-
-  function scrollIt(elem, delayTime = 1500) {
-    if (elem.offsetTop === 0) {
-      return scrollIntoView(elem, delayTime);
-    }
-    window.scrollTo({
-      behavior: 'smooth',
-      left: 0,
-      top: elem.offsetTop
-    });
-    return delay(delayTime);
-  }
-
-  const canScrollMore = () =>
-    window.scrollY + window.innerHeight <
-    Math.max(
-      document.body.scrollHeight,
-      document.body.offsetHeight,
-      document.documentElement.clientHeight,
-      document.documentElement.scrollHeight,
-      document.documentElement.offsetHeight
-    );
+  const removeAnnoyingElemId = 'pagelet_growth_expanding_cta';
 
   /**
    * @desc See description for {@link getFeedItems}
    * @param {HTMLElement} elem - The current
    * @returns {boolean}
    */
-  const newsFeedItemFilter = elem => elem.offsetTop !== 0;
-
-  /**
-   * @desc facebook hides upcoming feed story element. when it is time to display
-   * the story, the content is fetched and the element is unhidden.
-   * Need to filter these elements out so we do not mark them as visited when
-   * they are hidden (have width, height = 0 && offsetTop = 0)
-   * @param {function (string, HTMLElement?): Array<HTMLElement>} xpathG
-   * @return {Array<HTMLElement>}
-   */
-  const getFeedItems = (xpathG) => xpathG(feedItemSelector).filter(newsFeedItemFilter);
-
-  let removedBadElem = false;
-  function maybeRemoveAnnoying() {
-    const maybeAnnoying = document.getElementById('pagelet_growth_expanding_cta');
-    if (maybeAnnoying) {
-      maybeAnnoying.remove();
-      removedBadElem = true;
-    }
+  function newsFeedItemFilter(elem) {
+    return elem.offsetTop !== 0;
   }
 
   /**
@@ -126,32 +271,33 @@
    * @param {function (string, HTMLElement?): Array<HTMLElement>} xpathG
    * @returns {AsyncIterator<HTMLElement>}
    */
-  async function* newsFeedIterator(xpathG) {
-    let feedItems = getFeedItems(xpathG);
+  async function* makeIterator(xpathG) {
+    const getFeedItems = query => xpathG(query).filter(newsFeedItemFilter);
+    let feedItems = getFeedItems(feedItemSelector);
     let feedItem;
     do {
       while (feedItems.length > 0) {
         feedItem = feedItems.shift();
-        if (window.$WRSTP$) return;
-        await scrollIt(feedItem);
-        feedItem.classList.add('$wrvistited$');
+        await scrollToElemOffsetWithDelay(feedItem, scrollDelay);
+        markElemAsVisited(feedItem);
+        OLC.collectFrom(feedItem);
         yield feedItem;
       }
-      if (window.$WRSTP$) return;
-      feedItems = getFeedItems(xpathG);
+      feedItems = getFeedItems(feedItemSelector);
       if (feedItems.length === 0) {
         await delay();
-        feedItems = getFeedItems(xpathG);
+        feedItems = getFeedItems(feedItemSelector);
       }
-      if (window.$WRSTP$) return;
     } while (feedItems.length > 0 && canScrollMore());
   }
 
-  window.$WRNFIterator$ = newsFeedIterator(xpg);
+  let removedAnnoying = maybeRemoveElemById(removeAnnoyingElemId);
+  window.$WRNFIterator$ = makeIterator(maybePolyfillXPG(xpg));
   window.$WRIteratorHandler$ = async function() {
-    if (!removedBadElem) maybeRemoveAnnoying();
+    if (!removedAnnoying) {
+      removedAnnoying = maybeRemoveElemById(removeAnnoyingElemId);
+    }
     const next = await $WRNFIterator$.next();
     return next.done;
   };
-  maybeRemoveAnnoying();
-})($x);
+})($x, false);
