@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional, Any, ClassVar
+from .state import BehaviorState, Action
 
 import aiofiles
 import attr
@@ -76,6 +77,7 @@ class JSBasedBehavior(Behavior, ABC):
     _did_init: bool = attr.ib(default=False, init=False)
     _resource: str = attr.ib(default="", init=False)
     _has_resource: bool = attr.ib(default=True, init=False)
+    _wr_action_iter_next: ClassVar[str] = "window.$WRIteratorHandler$()"
 
     async def load_resources(self) -> None:
         resource = self.conf.get("resource")

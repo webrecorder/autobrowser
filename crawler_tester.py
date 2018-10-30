@@ -72,8 +72,7 @@ async def crawl_baby_crawl(loop: AbstractEventLoop) -> None:
                 frontier=dict(depth=2, seed_list=["https://twitter.com/webrecorder_io"]),
             )
             await crawl_tab.init()
-            async with timeout(120, loop=loop) as to:
-                await crawl_tab.crawl_loop
+            await crawl_tab.crawl_loop
         except Exception as e:
             traceback.print_exc()
         if crawl_tab:

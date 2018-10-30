@@ -14,7 +14,7 @@ class Frontier(object):
 
     @property
     def exhausted(self) -> bool:
-        return bool(self.queue)
+        return len(self.queue) == 0
 
     def pop(self) -> str:
         next_url = self.queue.pop()
@@ -24,7 +24,6 @@ class Frontier(object):
     def add(self, url: str, depth: int, scope: bool = True) -> None:
         should_add = self.scope.in_scope(url) if scope else True
         if should_add and url not in self.seen:
-            print(f"adding {url} to the frontier")
             self.queue.append((url, depth))
             self.seen.add(url)
 

@@ -8,6 +8,7 @@ from typing import List, Optional, Set
 import aiofiles
 from async_timeout import timeout
 from simplechrome.frame_manager import FrameManager
+from simplechrome.navigator_watcher import NavigatorWatcher
 
 from autobrowser.behaviors.basebehavior import Behavior
 from autobrowser.behaviors.behavior_manager import BehaviorManager
@@ -23,7 +24,7 @@ class CrawlerTab(BaseAutoTab):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.href_fn: str = "function () { return this.href; }"
-        self.outlink_expression: str = "window.$wbOutlinks$.toJSON()"
+        self.outlink_expression: str = "window.$wbOutlinks$"
         self.frame_manager: FrameManager = None
         self.crawl_loop: Optional[Future] = None
         self.frontier: Frontier = Frontier.init(**kwargs.get("frontier"))
@@ -57,14 +58,18 @@ class CrawlerTab(BaseAutoTab):
     def frontier_exhausted(self) -> bool:
         return self.frontier.exhausted
 
+    async def navigate(self, url: str) -> None:
+        pass
+
+
     async def crawl(self) -> None:
-        print(self.frontier)
         # loop until frontier is exhausted
         while not self.frontier.exhausted:
             n_url = self.frontier.pop()
             # navigate to next URL and wait until network idle
             print(f"navigating to {n_url}")
-            results = await self.goto(n_url, transitionType="address_bar")
+            # results = await self.goto(n_url, transitionType="address_bar")
+            results = await self.goto(n_url)
             print(f"waiting for net idle {results}")
             await self.net_idle(idle_time=2, global_wait=90)
             print("net idle")

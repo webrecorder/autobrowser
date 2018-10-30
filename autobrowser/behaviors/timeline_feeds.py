@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+from typing import Dict
 
 from .basebehavior import JSBasedBehavior
 
@@ -22,7 +23,7 @@ class TimelineFeedBehavior(JSBasedBehavior):
             self._did_init = True
         # get next timeline item
         done = await self.tab.evaluate_in_page(
-            "window.$WRIteratorHandler$()", contextId=self.contextId
+            self._wr_action_iter_next, contextId=self.contextId
         )
         logger.debug(f"TimelineFeedBehavior done ? {done}")
         # if we are done then tell the tab we are done
@@ -47,7 +48,7 @@ class TimelineFeedNetIdle(JSBasedBehavior):
             self._did_init = True
         # get next timeline item
         next_state = await self.tab.evaluate_in_page(
-            "window.$WRIteratorHandler$()", contextId=self.contextId
+            self._wr_action_iter_next, contextId=self.contextId
         )
         logger.debug(f"TimelineFeedBehavior done ? {next_state}")
         # if we are done then tell the tab we are done
