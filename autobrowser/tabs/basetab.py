@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from abc import ABCMeta, abstractmethod
-from asyncio import Future
+from asyncio import Future, Task
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
 from cripy import Client, connect
@@ -34,9 +34,8 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self._running: bool = False
         self._reconnecting: bool = False
         self._reconnect_promise: Optional[Future] = None
-
         self.behaviors: List[Behavior] = []
-        self.all_behaviors: Optional[Future] = None
+        self.all_behaviors: Optional[Task] = None
         self.target_info: Optional[Dict] = None
 
     @property
@@ -112,7 +111,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
             await asyncio.sleep(3.0)
         self._reconnecting = False
-        if self._reconnect_promise:
+        if self._reconnect_promise and not self._reconnect_promise.done():
             self._reconnect_promise.set_result(True)
 
     def add_behavior(self, behavior: Behavior) -> None:
@@ -122,7 +121,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """
         self.behaviors.append(behavior)
 
-    def net_idle(self, *args: Any, **kwargs: Any) -> Future:
+    def net_idle(self, *args: Any, **kwargs: Any) -> Task:
         """Returns a future that  resolves once network idle occurs.
 
         See the options of autobrowser.util.netidle.monitor for a complete

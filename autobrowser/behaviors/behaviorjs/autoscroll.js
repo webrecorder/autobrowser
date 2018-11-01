@@ -114,7 +114,6 @@
           window.scrollBy(0, 300);
           lastScrolled = Date.now();
         }
-        console.log(scrollPos);
         collectOutlinksFrom(document);
         findAllMediaAndPlay();
         if (!lastScrolled || Date.now() - lastScrolled > scrollingTO) {

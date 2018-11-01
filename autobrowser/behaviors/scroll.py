@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 from .basebehavior import Behavior, JSBasedBehavior
+import attr
 
 __all__ = ["AutoScrollBehavior", "ScrollBehavior"]
 
@@ -35,8 +36,7 @@ class ScrollBehavior(Behavior):
     SCROLL_INC = "window.scrollBy(0, 80)"
     SCROLL_SPEED = 0.2
 
-    async def run(self):
-        self._done = False
+    async def perform_action(self) -> None:
         while True:
             is_paused = await self.tab.evaluate_in_page("window.__wr_scroll_paused")
             self._paused = bool(is_paused["result"].get("value"))
@@ -54,7 +54,7 @@ class ScrollBehavior(Behavior):
             await self.tab.evaluate_in_page(self.SCROLL_INC)
 
             await asyncio.sleep(self.SCROLL_SPEED)
-        self._done = True
+        self._finished()
 
 
 class AutoScrollBehavior(JSBasedBehavior):
@@ -63,10 +63,10 @@ class AutoScrollBehavior(JSBasedBehavior):
     Waits for network idle after each scroll invocation.
     """
 
-    async def run(self):
+    async def perform_action(self) -> None:
         print(f"AutoScrollBehavior.run")
-        nif = self.tab.net_idle()
         await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
-        await nif
+        await self.tab.net_idle(global_wait=20)
         print(f"AutoScrollBehavior network_idle")
-        self._done = True
+        self._finished()
+

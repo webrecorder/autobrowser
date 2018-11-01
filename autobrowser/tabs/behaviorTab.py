@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+from asyncio import Task
 import logging
 
 from autobrowser.behaviors.behavior_manager import BehaviorManager
@@ -16,8 +17,6 @@ class BehaviorTab(BaseAutoTab):
             return
         await super().init()
         behavior = BehaviorManager.behavior_for_url(self.tab_data.get("url"), self)
-        if behavior.has_resources:
-            await behavior.load_resources()
         self.add_behavior(behavior)
         self.all_behaviors = asyncio.ensure_future(
             self._behavior_loop(), loop=asyncio.get_event_loop()

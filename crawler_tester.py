@@ -3,14 +3,17 @@ from asyncio import AbstractEventLoop
 from typing import List, Dict
 import traceback
 
-from cripy import Client
+from cripy import Client, connect
 from contextlib import asynccontextmanager
 from async_timeout import timeout
 import uvloop
-
+import logging
 from autobrowser.tabs.crawlerTab import CrawlerTab
-
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+# import sys
+# logger = logging.getLogger('websockets')
+# logger.setLevel(logging.DEBUG)
+# logger.addHandler(logging.StreamHandler(sys.stdout))
+# asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 CHROME = "google-chrome-unstable"  # aka chrome canary
 
@@ -69,7 +72,7 @@ async def crawl_baby_crawl(loop: AbstractEventLoop) -> None:
             crawl_tab = CrawlerTab.create(
                 None,
                 tab_info,
-                frontier=dict(depth=2, seed_list=["https://twitter.com/webrecorder_io"]),
+                frontier=dict(depth=2, seed_list=["https://twitter.com/AnnaPerricci/status/1055500045930414085"]),
             )
             await crawl_tab.init()
             await crawl_tab.crawl_loop
@@ -77,7 +80,7 @@ async def crawl_baby_crawl(loop: AbstractEventLoop) -> None:
             traceback.print_exc()
         if crawl_tab:
             await crawl_tab.close()
-
+#
 
 if __name__ == "__main__":
     _loop = asyncio.get_event_loop()

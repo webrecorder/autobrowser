@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import logging
-from asyncio import AbstractEventLoop, Future
+from asyncio import AbstractEventLoop, Future, Task
 from pathlib import Path
 from typing import List, Optional, Set
 
@@ -26,9 +26,8 @@ class CrawlerTab(BaseAutoTab):
         self.href_fn: str = "function () { return this.href; }"
         self.outlink_expression: str = "window.$wbOutlinks$"
         self.frame_manager: FrameManager = None
-        self.crawl_loop: Optional[Future] = None
+        self.crawl_loop: Optional[Task] = None
         self.frontier: Frontier = Frontier.init(**kwargs.get("frontier"))
-        self._loop: AbstractEventLoop = asyncio.get_event_loop()
         self._max_behavior_time: int = 60
 
     @classmethod
@@ -40,14 +39,13 @@ class CrawlerTab(BaseAutoTab):
             return
         await super().init()
         await self.client.Network.setCacheDisabled(True)
+        await self.client.Page.setLifecycleEventsEnabled(True)
         frame_tree = await self.client.Page.getFrameTree()
         self.frame_manager = FrameManager(self.client, frame_tree["frameTree"], None)
-        self.crawl_loop = asyncio.ensure_future(
-            self.crawl(), loop=asyncio.get_event_loop()
-        )
         dir_path = Path(__file__).parent
         async with aiofiles.open(str(dir_path / "js" / "nice.js"), "r") as iin:
             await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
+        self.crawl_loop = self._loop.create_task(self.crawl())
 
     async def close(self) -> None:
         await super().close()
@@ -59,45 +57,47 @@ class CrawlerTab(BaseAutoTab):
         return self.frontier.exhausted
 
     async def navigate(self, url: str) -> None:
-        pass
-
+        try:
+            results = await self.frame_manager.mainFrame.goto(
+                url, dict(waitUntil="networkidle0")
+            )
+        except Exception:
+            pass
+        print(f"net idle {results}")
+        # results = await self.goto(url, transitionType="address_bar")
+        # results = await self.goto(n_url)
+        # print(f"waiting for net idle {results}")
 
     async def crawl(self) -> None:
         # loop until frontier is exhausted
         while not self.frontier.exhausted:
+            print(self.frontier.queue)
             n_url = self.frontier.pop()
             # navigate to next URL and wait until network idle
             print(f"navigating to {n_url}")
+            await self.navigate(n_url)
             # results = await self.goto(n_url, transitionType="address_bar")
-            results = await self.goto(n_url)
-            print(f"waiting for net idle {results}")
-            await self.net_idle(idle_time=2, global_wait=90)
-            print("net idle")
+            # results = await self.goto(n_url)
+            # print(f"waiting for net idle {results}")
+            # await self.net_idle(idle_time=2, global_wait=90)
+            # print("net idle")
             # get the url of the main (top) frame
             ex_cntx = await self.frame_manager.mainFrame.executionContext()
             behavior = BehaviorManager.behavior_for_url(
-                self.frame_manager.mainFrame.url, self, ex_cntx.id
+                self.frame_manager.mainFrame.url, self, cntx_id=ex_cntx.id
             )
-            print(f"running behavior {behavior}")
+            # print(f"running behavior {behavior}")
             # we have a behavior to be run so run it
             if behavior is not None:
-                await self._timed_behavior(behavior)
+                # run the behavior in a timed fashion (async_timeout will cancel the corutine if max time is reached)
+                try:
+                    async with timeout(self._max_behavior_time, loop=self._loop):
+                        await behavior.run_task(loop=self._loop)
+                except asyncio.TimeoutError:
+                    print("timed behavior to")
+                    pass
             out_links = await self.evaluate_in_page(self.outlink_expression)
-            self.frontier.add_all(
-                out_links.get("result", {}).get("value", [])
-            )
-
-    async def _timed_behavior(self, behavior: Behavior) -> None:
-        # check to see if the behavior requires resources and if so load them
-        if behavior.has_resources:
-            await behavior.load_resources()
-        # run the behavior in a timed fashion (async_timeout will cancel the corutine if max time is reached)
-        try:
-            async with timeout(self._max_behavior_time, loop=self._loop):
-                while not behavior.done:
-                    await behavior.run()
-        except asyncio.TimeoutError:
-            pass
+            self.frontier.add_all(out_links.get("result", {}).get("value", []))
 
     async def manual_collect_outlinks(self):
         await self.client.DOM.enable()

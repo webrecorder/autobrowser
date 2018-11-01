@@ -12,15 +12,8 @@ logger = logging.getLogger("autobrowser")
 class TimelineFeedBehavior(JSBasedBehavior):
     """Behavior for iterating over timelines, e.g. Twitter, Facebook, and Instagram"""
 
-    async def run(self) -> None:
-        # indicate we are not done
-        self._done = False
-        logger.debug(f"TimelineFeedBehavior.run")
-        # check if we injected our setup code or not
-        if not self._did_init:
-            # did not so inject it
-            await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
-            self._did_init = True
+    async def perform_action(self) -> None:
+        logger.debug(f"TimelineFeedBehavior.perform_action")
         # get next timeline item
         done = await self.tab.evaluate_in_page(
             self._wr_action_iter_next, contextId=self.contextId
@@ -28,8 +21,7 @@ class TimelineFeedBehavior(JSBasedBehavior):
         logger.debug(f"TimelineFeedBehavior done ? {done}")
         # if we are done then tell the tab we are done
         if done.get("result").get("value"):
-            self.tab.pause_behaviors()
-            self._done = True
+            self._finished()
 
 
 class TimelineFeedNetIdle(JSBasedBehavior):
@@ -37,15 +29,9 @@ class TimelineFeedNetIdle(JSBasedBehavior):
     network idle to happen before initiating another
     """
 
-    async def run(self) -> None:
+    async def perform_action(self) -> None:
         # indicate we are not done
-        self._done = False
-        logger.debug(f"TimelineFeedBehavior.run")
-        # check if we injected our setup code or not
-        if not self._did_init:
-            # did not so inject it
-            await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
-            self._did_init = True
+        logger.debug(f"TimelineFeedBehavior.perform_action")
         # get next timeline item
         next_state = await self.tab.evaluate_in_page(
             self._wr_action_iter_next, contextId=self.contextId
@@ -57,5 +43,5 @@ class TimelineFeedNetIdle(JSBasedBehavior):
         if not done and result.get("wait"):
             await self.tab.net_idle(global_wait=10)
         elif done:
-            self.tab.pause_behaviors()
-            self._done = True
+            self._finished()
+

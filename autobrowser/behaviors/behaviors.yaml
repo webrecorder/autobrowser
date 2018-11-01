@@ -44,6 +44,7 @@ matching:
 default:
   init:
     resource: 'autoscroll.js'
+    pre_init: false
   handler:
     module: 'scroll'
     class: 'AutoScrollBehavior'

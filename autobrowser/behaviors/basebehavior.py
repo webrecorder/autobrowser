@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
+import asyncio
 from abc import ABC, abstractmethod
+from asyncio import Task
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, Any, ClassVar
-from .state import BehaviorState, Action
+from typing import TYPE_CHECKING, Dict, Optional, ClassVar
 
 import aiofiles
 import attr
@@ -14,21 +15,36 @@ if TYPE_CHECKING:
 __all__ = ["Behavior", "JSBasedBehavior"]
 
 
-@attr.dataclass
+@attr.dataclass(slots=True)
 class Behavior(ABC):
     """A behavior represents an action that is to be performed in the page (tab).
 
     This class defines the expected interface for all behaviors.
     Each behavior has an associated tab and configuration. If a behaviors configuration is not supplied
     then it is an empty dictionary, allowing subclasses to fill in information as necessary.
+
+    Behavior lifecycle:
+      - init():
+        called
+    - run() -> done
+
     """
 
     tab: "BaseAutoTab" = attr.ib()
     conf: Dict = attr.ib(factory=dict)
     contextId: Optional[int] = attr.ib(default=None)
     _has_resource: bool = attr.ib(default=False, init=False)
+    _pre_init: bool = attr.ib(default=False, init=False)
     _done: bool = attr.ib(default=False, init=False)
     _paused: bool = attr.ib(default=False, init=False)
+    _did_init: bool = attr.ib(default=False, init=False)
+    _resource: str = attr.ib(default="", init=False)
+    _running_task: Optional[Task] = attr.ib(default=None, init=False)
+
+    def __attrs_post_init__(self):
+        self._pre_init = self.conf.get('pre_init', self._pre_init)
+        print(self)
+        print(self._pre_init)
 
     @property
     def done(self) -> bool:
@@ -49,6 +65,18 @@ class Behavior(ABC):
         """Does the behavior require resources to be loaded"""
         return self._has_resource
 
+    def reset(self):
+        self._did_init = False
+        self._done = False
+
+    def _finished(self):
+        self.tab.pause_behaviors()
+        self._done = True
+
+    @abstractmethod
+    async def perform_action(self) -> None:
+        pass
+
     async def load_resources(self):
         """Load the resources required by a behavior.
 
@@ -56,16 +84,40 @@ class Behavior(ABC):
         """
         pass
 
-    @abstractmethod
-    async def run(self) -> bool:
-        """Start the behaviors action"""
+    async def pre_action_init(self) -> None:
+        """Perform all initialization required to run the behavior.
+
+        Behaviors that require
+        """
         pass
+
+    async def init(self) -> None:
+        if self._did_init:
+            return
+        if self._has_resource:
+            await self.load_resources()
+        if self._pre_init:
+            await self.pre_action_init()
+        self._did_init = True
+
+    def run_task(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> Task:
+        if self._running_task is not None and not self._running_task.done():
+            return self._running_task
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self._running_task = loop.create_task(self.run())
+        return self._running_task
+
+    async def run(self) -> None:
+        await self.init()
+        while not self.done:
+            await self.perform_action()
 
     def __await__(self):
         return self.run().__await__()
 
 
-@attr.dataclass
+@attr.dataclass(slots=True)
 class JSBasedBehavior(Behavior, ABC):
     """Specialized subclass of Behavior that require JavaScript to operate.
 
@@ -74,10 +126,14 @@ class JSBasedBehavior(Behavior, ABC):
     is false then the value of the 'resource' key is expected to be a full path to the file.
     """
 
-    _did_init: bool = attr.ib(default=False, init=False)
-    _resource: str = attr.ib(default="", init=False)
     _has_resource: bool = attr.ib(default=True, init=False)
+    _pre_init: bool = attr.ib(default=True, init=False)
     _wr_action_iter_next: ClassVar[str] = "window.$WRIteratorHandler$()"
+
+    async def pre_action_init(self):
+        # check if we injected our setup code or not
+        # did not so inject it
+        await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
 
     async def load_resources(self) -> None:
         resource = self.conf.get("resource")
