@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import logging
-from asyncio import AbstractEventLoop, Future, Task
+from asyncio import Task
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional
 
 import aiofiles
 from async_timeout import timeout
+from simplechrome.errors import NavigationError
 from simplechrome.frame_manager import FrameManager
-from simplechrome.navigator_watcher import NavigatorWatcher
 
-from autobrowser.behaviors.basebehavior import Behavior
 from autobrowser.behaviors.behavior_manager import BehaviorManager
 from autobrowser.frontier import Frontier
 from .basetab import BaseAutoTab
@@ -41,7 +40,9 @@ class CrawlerTab(BaseAutoTab):
         await self.client.Network.setCacheDisabled(True)
         await self.client.Page.setLifecycleEventsEnabled(True)
         frame_tree = await self.client.Page.getFrameTree()
-        self.frame_manager = FrameManager(self.client, frame_tree["frameTree"], None)
+        self.frame_manager = FrameManager(
+            self.client, frame_tree["frameTree"], loop=self._loop
+        )
         dir_path = Path(__file__).parent
         async with aiofiles.open(str(dir_path / "js" / "nice.js"), "r") as iin:
             await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
@@ -58,31 +59,20 @@ class CrawlerTab(BaseAutoTab):
 
     async def navigate(self, url: str) -> None:
         try:
-            results = await self.frame_manager.mainFrame.goto(
-                url, dict(waitUntil="networkidle0")
-            )
-        except Exception:
-            pass
-        print(f"net idle {results}")
-        # results = await self.goto(url, transitionType="address_bar")
-        # results = await self.goto(n_url)
-        # print(f"waiting for net idle {results}")
+            await self.frame_manager.mainFrame.goto(url, waitUntil="networkidle0")
+        except NavigationError as ne:
+            print(ne)
 
     async def crawl(self) -> None:
         # loop until frontier is exhausted
         while not self.frontier.exhausted:
             print(self.frontier.queue)
             n_url = self.frontier.pop()
-            # navigate to next URL and wait until network idle
             print(f"navigating to {n_url}")
             await self.navigate(n_url)
-            # results = await self.goto(n_url, transitionType="address_bar")
-            # results = await self.goto(n_url)
-            # print(f"waiting for net idle {results}")
-            # await self.net_idle(idle_time=2, global_wait=90)
-            # print("net idle")
-            # get the url of the main (top) frame
             ex_cntx = await self.frame_manager.mainFrame.executionContext()
+            # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
+            # after any redirects happen
             behavior = BehaviorManager.behavior_for_url(
                 self.frame_manager.mainFrame.url, self, cntx_id=ex_cntx.id
             )
