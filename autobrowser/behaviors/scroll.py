@@ -38,20 +38,20 @@ class ScrollBehavior(Behavior):
 
     async def perform_action(self) -> None:
         while True:
-            is_paused = await self.tab.evaluate_in_page("window.__wr_scroll_paused")
-            self._paused = bool(is_paused["result"].get("value"))
+            is_paused = await self.evaluate_in_page("window.__wr_scroll_paused")
+            self._paused = bool(is_paused)
 
             if self._paused:
                 print("Scroll Paused")
                 await asyncio.sleep(1.0)
                 continue
 
-            should_scroll = await self.tab.evaluate_in_page(self.SCROLL_COND)
+            should_scroll = await self.evaluate_in_page(self.SCROLL_COND)
 
-            if not should_scroll["result"]["value"]:
+            if not should_scroll:
                 break
 
-            await self.tab.evaluate_in_page(self.SCROLL_INC)
+            await self.evaluate_in_page(self.SCROLL_INC)
 
             await asyncio.sleep(self.SCROLL_SPEED)
         self._finished()
@@ -65,7 +65,7 @@ class AutoScrollBehavior(JSBasedBehavior):
 
     async def perform_action(self) -> None:
         print(f"AutoScrollBehavior.run")
-        await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
+        await self.evaluate_in_page(self._resource)
         await self.tab.net_idle(global_wait=20)
         print(f"AutoScrollBehavior network_idle")
         self._finished()

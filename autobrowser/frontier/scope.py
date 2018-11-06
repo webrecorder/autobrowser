@@ -1,7 +1,9 @@
-from typing import Set, List
+from typing import Set, List, Pattern
 
 import attr
+from aioredis import Redis
 from urlcanon.parse import parse_url
+from re import compile
 
 surt_end = b")"
 
@@ -24,5 +26,23 @@ class Scope(object):
         usurt = parse_url(url).surt(with_scheme=False)
         for surt in self.surts:
             if usurt.startswith(surt):
+                return True
+        return False
+
+
+@attr.dataclass(slots=True)
+class RedisScope(object):
+    redis: Redis = attr.ib()
+    scope_key: str = attr.ib(convert=lambda uid: f"{uid}:scope")
+    scope_values: Set[Pattern] = attr.ib(init=False, factory=set)
+
+    async def retrieve_scope_values(self) -> None:
+        sv = await self.redis.smembers(self.scope_key)
+        for p in sv:
+            self.scope_values.add(compile(p))
+
+    def in_scope(self, url: str) -> bool:
+        for pattern in self.scope_values:
+            if pattern.match(url):
                 return True
         return False

@@ -1,0 +1,4 @@
+com,twitter,)/ - {"default": "allow", "block": [{"url_regex": "/status/[0-9]+#(?:timeline)?$"}]}
+
+
+

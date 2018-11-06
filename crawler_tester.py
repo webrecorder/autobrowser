@@ -9,11 +9,12 @@ from async_timeout import timeout
 import uvloop
 import logging
 from autobrowser.tabs.crawlerTab import CrawlerTab
+from urlcanon import parse_url
 # import sys
 # logger = logging.getLogger('websockets')
 # logger.setLevel(logging.DEBUG)
 # logger.addHandler(logging.StreamHandler(sys.stdout))
-# asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 CHROME = "google-chrome-unstable"  # aka chrome canary
 
@@ -83,5 +84,11 @@ async def crawl_baby_crawl(loop: AbstractEventLoop) -> None:
 #
 
 if __name__ == "__main__":
-    _loop = asyncio.get_event_loop()
-    _loop.run_until_complete(crawl_baby_crawl(_loop))
+    # _loop = asyncio.get_event_loop()
+    # _loop.run_until_complete(crawl_baby_crawl(_loop))
+    import ujson
+    with open('frontier.json', 'r') as iin:
+        f = ujson.load(iin)
+    for it in f:
+        print(parse_url(it).surt(with_scheme=False))
+

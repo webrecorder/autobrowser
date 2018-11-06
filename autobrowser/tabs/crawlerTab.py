@@ -3,12 +3,12 @@ import asyncio
 import logging
 from asyncio import Task
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 
 import aiofiles
 from async_timeout import timeout
 from simplechrome.errors import NavigationError
-from simplechrome.frame_manager import FrameManager
+from simplechrome.frame_manager import FrameManager, Frame
 
 from autobrowser.behaviors.behavior_manager import BehaviorManager
 from autobrowser.frontier import Frontier
@@ -54,12 +54,16 @@ class CrawlerTab(BaseAutoTab):
             self.crawl_loop.cancel()
 
     @property
+    def main_frame(self) -> Frame:
+        return self.frame_manager.mainFrame
+
+    @property
     def frontier_exhausted(self) -> bool:
         return self.frontier.exhausted
 
-    async def navigate(self, url: str) -> None:
+    async def goto(self, url: str, **kwargs: Any) -> None:
         try:
-            await self.frame_manager.mainFrame.goto(url, waitUntil="networkidle0")
+            await self.main_frame.goto(url, waitUntil="networkidle0")
         except NavigationError as ne:
             print(ne)
 
@@ -69,12 +73,12 @@ class CrawlerTab(BaseAutoTab):
             print(self.frontier.queue)
             n_url = self.frontier.pop()
             print(f"navigating to {n_url}")
-            await self.navigate(n_url)
-            ex_cntx = await self.frame_manager.mainFrame.executionContext()
+            await self.goto(n_url)
             # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
             # after any redirects happen
+            main_frame = self.frame_manager.mainFrame
             behavior = BehaviorManager.behavior_for_url(
-                self.frame_manager.mainFrame.url, self, cntx_id=ex_cntx.id
+                main_frame.url, self, frame=main_frame
             )
             # print(f"running behavior {behavior}")
             # we have a behavior to be run so run it
@@ -82,12 +86,13 @@ class CrawlerTab(BaseAutoTab):
                 # run the behavior in a timed fashion (async_timeout will cancel the corutine if max time is reached)
                 try:
                     async with timeout(self._max_behavior_time, loop=self._loop):
-                        await behavior.run_task(loop=self._loop)
+                        await behavior.run()
                 except asyncio.TimeoutError:
                     print("timed behavior to")
                     pass
-            out_links = await self.evaluate_in_page(self.outlink_expression)
-            self.frontier.add_all(out_links.get("result", {}).get("value", []))
+            out_links = await main_frame.evaluate_expression(self.outlink_expression)
+
+            # self.frontier.add_all(out_links)
 
     async def manual_collect_outlinks(self):
         await self.client.DOM.enable()

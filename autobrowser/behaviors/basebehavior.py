@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 import asyncio
 from abc import ABC, abstractmethod
-from asyncio import Task
+from asyncio import Task, AbstractEventLoop
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, ClassVar
+from typing import TYPE_CHECKING, Dict, Optional, ClassVar, Awaitable, Any
+from simplechrome.frame_manager import Frame
 
 import aiofiles
 import attr
@@ -32,7 +33,7 @@ class Behavior(ABC):
 
     tab: "BaseAutoTab" = attr.ib()
     conf: Dict = attr.ib(factory=dict)
-    contextId: Optional[int] = attr.ib(default=None)
+    frame: Optional[Frame] = attr.ib(default=None)
     _has_resource: bool = attr.ib(default=False, init=False)
     _pre_init: bool = attr.ib(default=False, init=False)
     _done: bool = attr.ib(default=False, init=False)
@@ -42,9 +43,7 @@ class Behavior(ABC):
     _running_task: Optional[Task] = attr.ib(default=None, init=False)
 
     def __attrs_post_init__(self):
-        self._pre_init = self.conf.get('pre_init', self._pre_init)
-        print(self)
-        print(self._pre_init)
+        self._pre_init = self.conf.get("pre_init", self._pre_init)
 
     @property
     def done(self) -> bool:
@@ -100,7 +99,9 @@ class Behavior(ABC):
             await self.pre_action_init()
         self._did_init = True
 
-    def run_task(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> Task:
+    def run_task(
+        self, loop: Optional[AbstractEventLoop] = None
+    ) -> Task:
         if self._running_task is not None and not self._running_task.done():
             return self._running_task
         if loop is None:
@@ -112,6 +113,12 @@ class Behavior(ABC):
         await self.init()
         while not self.done:
             await self.perform_action()
+
+    async def evaluate_in_page(self, js_string: str) -> Any:
+        if self.frame is not None:
+            return await self.frame.evaluate_expression(js_string, withCliAPI=True)
+        result = await self.tab.evaluate_in_page(js_string)
+        return result.get("result", {}).get("value")
 
     def __await__(self):
         return self.run().__await__()
@@ -133,7 +140,7 @@ class JSBasedBehavior(Behavior, ABC):
     async def pre_action_init(self):
         # check if we injected our setup code or not
         # did not so inject it
-        await self.tab.evaluate_in_page(self._resource, contextId=self.contextId)
+        await self.evaluate_in_page(self._resource)
 
     async def load_resources(self) -> None:
         resource = self.conf.get("resource")

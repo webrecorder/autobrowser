@@ -15,12 +15,10 @@ class TimelineFeedBehavior(JSBasedBehavior):
     async def perform_action(self) -> None:
         logger.debug(f"TimelineFeedBehavior.perform_action")
         # get next timeline item
-        done = await self.tab.evaluate_in_page(
-            self._wr_action_iter_next, contextId=self.contextId
-        )
+        done = await self.evaluate_in_page(self._wr_action_iter_next)
         logger.debug(f"TimelineFeedBehavior done ? {done}")
         # if we are done then tell the tab we are done
-        if done.get("result").get("value"):
+        if done:
             self._finished()
 
 
@@ -33,15 +31,12 @@ class TimelineFeedNetIdle(JSBasedBehavior):
         # indicate we are not done
         logger.debug(f"TimelineFeedBehavior.perform_action")
         # get next timeline item
-        next_state = await self.tab.evaluate_in_page(
-            self._wr_action_iter_next, contextId=self.contextId
-        )
+        next_state = await self.evaluate_in_page(self._wr_action_iter_next)
+
         logger.debug(f"TimelineFeedBehavior done ? {next_state}")
         # if we are done then tell the tab we are done
-        result = next_state.get("result", {}).get("value")
-        done = result.get("done")
-        if not done and result.get("wait"):
+        done = next_state.get("done")
+        if not done and next_state.get("wait"):
             await self.tab.net_idle(global_wait=10)
         elif done:
             self._finished()
-

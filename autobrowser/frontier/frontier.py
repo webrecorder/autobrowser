@@ -1,6 +1,8 @@
 from typing import Set, Tuple, List, Union
 
 import attr
+from aioredis import Redis
+
 from .scope import Scope
 
 
@@ -41,3 +43,40 @@ class Frontier(object):
             frontier.queue.append((url, 0))
             frontier.seen.add(url)
         return frontier
+
+
+@attr.dataclass(slots=True)
+class RedisFrontier(object):
+    redis: Redis = attr.ib()
+    uid: str = attr.ib(convert=lambda _uid: f"a:{_uid}")
+    q_key: str = attr.ib(init=False, default=None)
+    pending_key: str = attr.ib(init=False, default=None)
+    seen_key: str = attr.ib(init=False, default=None)
+    scope_key: str = attr.ib(init=False, default=None)
+    _loc_len: int = attr.ib(init=False, default=-1)
+    _loc_depth: int = attr.ib(init=False, default=-1)
+
+    async def exhausted(self) -> bool:
+        return await self.redis.llen(self.q_key) == 0
+
+    async def is_seen(self, url: str) -> bool:
+        return await self.redis.sismember(self.seen_key, url) == 1
+
+    async def add_to_pending(self, url: str) -> None:
+        await self.redis.sadd(self.pending_key, url)
+
+    async def remove_from_pending(self, url: str) -> None:
+        await self.redis.srem(self.pending_key, url)
+
+    async def local_populate_frontier(self, depth: int, seed_list: List[str]):
+        self._loc_depth = depth
+        self._loc_len = len(seed_list)
+        for url in seed_list:
+            await self.redis.rpush(self.q_key, f"{url}:0")
+            await self.redis.sadd(self.scope_key, url)
+
+    def __attrs_post_init__(self):
+        self.q_key = f"{self.uid}:q"
+        self.pending_key = f"{self.uid}:qp"
+        self.seen_key = f"{self.uid}:seen"
+        self.scope_key = f"{self.uid}:scope"
