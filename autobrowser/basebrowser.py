@@ -2,9 +2,10 @@
 import asyncio
 import logging
 from typing import Optional, List, Dict, Tuple, Any, Union, ClassVar
-
+from asyncio import AbstractEventLoop
 from aiohttp import ClientSession
 from pyee import EventEmitter
+from redis import Redis
 
 from .tabs import TAB_CLASSES, BaseAutoTab
 
@@ -31,19 +32,20 @@ class BaseAutoBrowser(EventEmitter):
         self,
         api_host: str,
         browser_id: str = "chrome:67",
-        reqid: str = None,
+        autoid: str = None,
         cdata=None,
         num_tabs: int = 1,
         pubsub: bool = False,
         tab_class: str = "BehaviorTab",
         tab_opts=None,
-        loop=None,
+        loop: Optional[AbstractEventLoop] = None,
+        redis: Optional[Redis] = None,
     ) -> None:
         super().__init__(loop=loop if loop is not None else asyncio.get_event_loop())
         self.api_host = api_host
         self.browser_id = browser_id
         self.cdata = cdata
-        self.reqid = reqid
+        self.autoid = autoid
         self.ip: Optional[str] = None
         self.tabs: List[BaseAutoTab] = []
         self.num_tabs = num_tabs
@@ -52,6 +54,11 @@ class BaseAutoBrowser(EventEmitter):
         self.tab_opts = tab_opts if tab_opts is not None else {}
         self.base_ip_url = f"{self.api_host}{self.GET_BROWSER_INFO_URL}"
         self.running = False
+        self.redis = redis
+
+    @property
+    def loop(self) -> AbstractEventLoop:
+        return self._loop
 
     async def init(self, reqid: Optional[str] = None) -> None:
         ip = None
@@ -75,11 +82,13 @@ class BaseAutoBrowser(EventEmitter):
                 ip = results["ip"]
                 tab_datas = results["tab_datas"]
 
-        self.reqid = reqid
+        self.autoid = reqid
         self.ip = ip
         self.tabs.clear()
         for tab_data in tab_datas:
-            tab = self.tab_class.create(self, tab_data, **self.tab_opts)
+            tab = self.tab_class.create(
+                self, tab_data, self.autoid, redis=self.redis, **self.tab_opts
+            )
             await tab.init()
             self.tabs.append(tab)
 
@@ -91,18 +100,25 @@ class BaseAutoBrowser(EventEmitter):
 
         await self.init()
 
-        logger.debug("Auto Browser Re-Inited: " + self.reqid)
+        logger.debug("Auto Browser Re-Inited: " + self.autoid)
 
     async def close(self) -> None:
         self.running = False
 
-        if self.reqid:
-            self.emit("browser_removed", self.reqid)
+        if self.autoid:
+            self.emit("browser_removed", self.autoid)
 
         for tab in self.tabs:
             await tab.close()
 
-        self.reqid = None
+        self.autoid = None
+
+    async def shutdown_gracefully(self) -> None:
+        self.running = False
+        for tab in self.tabs:
+            await tab.shutdown_gracefully()
+        self.autoid = None
+        self.tabs.clear()
 
     async def get_ip_for_reqid(self, reqid: str) -> Optional[str]:
         """Retrieve the ip address associated with a requests id

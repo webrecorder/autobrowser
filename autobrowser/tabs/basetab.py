@@ -3,8 +3,9 @@
 import asyncio
 import logging
 from abc import ABCMeta, abstractmethod
-from asyncio import Future, Task
+from asyncio import Task, AbstractEventLoop
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from aioredis import Redis
 
 from cripy import Client, connect
 from pyee import EventEmitter
@@ -24,10 +25,21 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
     def __init__(
-        self, browser: "BaseAutoBrowser", tab_data: Dict[str, str], **kwargs
+        self,
+        browser: "BaseAutoBrowser",
+        tab_data: Dict[str, str],
+        autoid: str,
+        redis: Optional[Redis] = None,
+        **kwargs,
     ) -> None:
-        super().__init__(loop=asyncio.get_event_loop())
+        if browser is not None:
+            loop = browser.loop
+        else:
+            loop = asyncio.get_event_loop()
+        super().__init__(loop=loop)
         self.browser: "BaseAutoBrowser" = browser
+        self.redis = redis
+        self.autoid = autoid
         self.tab_data: Dict[str, str] = tab_data
         self._url: str = self.tab_data["url"]
         self._id: str = self.tab_data["id"]
@@ -35,10 +47,17 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self._behaviors_paused: bool = False
         self._running: bool = False
         self._reconnecting: bool = False
-        self._reconnect_promise: Optional[Future] = None
+        self._reconnect_promise: Optional[Task] = None
         self.behaviors: List[Behavior] = []
         self.all_behaviors: Optional[Task] = None
         self.target_info: Optional[Dict] = None
+        self._graceful_shutdown: bool = False
+        if self._loop is None:
+            self._loop = asyncio.get_event_loop()
+
+    @property
+    def loop(self) -> AbstractEventLoop:
+        return self._loop
 
     @property
     def behaviors_paused(self) -> bool:
@@ -99,7 +118,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         replaced with the devtools."""
         if result["reason"] == "replaced_with_devtools":
             self._reconnecting = True
-            self._reconnect_promise = asyncio.ensure_future(self._wait_for_reconnect())
+            self._reconnect_promise = self._loop.create_task(self._wait_for_reconnect())
 
     async def _wait_for_reconnect(self) -> None:
         """Attempt to reconnect to browser tab after client connection was replayed with
@@ -114,7 +133,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
             await asyncio.sleep(3.0)
         self._reconnecting = False
         if self._reconnect_promise and not self._reconnect_promise.done():
-            self._reconnect_promise.set_result(True)
+            self._reconnect_promise.cancel()
 
     def add_behavior(self, behavior: Behavior) -> None:
         """A Page behavior to the list of behaviors to be run per page
@@ -215,5 +234,12 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
             self.client = None
         self._running = False
 
-    def __repr__(self):
-        return f"BaseAutoTab({self.tab_data})"
+    async def shutdown_gracefully(self) -> None:
+        self._graceful_shutdown = True
+        await self.close()
+
+    def __str__(self) -> str:
+        return f"BaseAutoTab(autoid={self.autoid}, {self.tab_data})"
+
+    def __repr__(self) -> str:
+        return self.__str__()

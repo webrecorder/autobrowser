@@ -18,9 +18,7 @@ class BehaviorTab(BaseAutoTab):
         await super().init()
         behavior = BehaviorManager.behavior_for_url(self.tab_data.get("url"), self)
         self.add_behavior(behavior)
-        self.all_behaviors = asyncio.ensure_future(
-            self._behavior_loop(), loop=asyncio.get_event_loop()
-        )
+        self.all_behaviors = self._loop.create_task(self._behavior_loop())
 
     async def close(self) -> None:
         if self.all_behaviors:

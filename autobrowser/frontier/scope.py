@@ -32,7 +32,7 @@ class Scope(object):
 
 @attr.dataclass(slots=True)
 class RedisScope(object):
-    redis: Redis = attr.ib()
+    redis: Redis = attr.ib(repr=False)
     scope_key: str = attr.ib(convert=lambda uid: f"{uid}:scope")
     rules: List[MatchRule] = attr.ib(init=False, factory=list)
 
@@ -55,6 +55,8 @@ class RedisScope(object):
         :param url: The url to be tested
         :return: True if the URL is in scope or false if it is not in scope or is filtered
         """
+        if url.endswith("#timeline"):
+            return False
         in_scope = False
         for rule in self.rules:
             in_scope = rule.applies(url)

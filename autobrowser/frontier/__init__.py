@@ -1,4 +1,4 @@
-from .scope import Scope
-from .frontier import Frontier
+from .scope import Scope, RedisScope
+from .frontier import Frontier, RedisFrontier
 
-__all__ = ["Scope", "Frontier"]
+__all__ = ["Scope", "Frontier", "RedisScope", "RedisFrontier"]

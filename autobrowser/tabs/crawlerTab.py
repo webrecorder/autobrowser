@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import logging
-from asyncio import Task
+from asyncio import Task, Future
 from pathlib import Path
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 
 import aiofiles
 from async_timeout import timeout
@@ -11,7 +11,7 @@ from simplechrome.errors import NavigationError
 from simplechrome.frame_manager import FrameManager, Frame
 
 from autobrowser.behaviors.behavior_manager import BehaviorManager
-from autobrowser.frontier import Frontier
+from autobrowser.frontier import Frontier, RedisFrontier
 from .basetab import BaseAutoTab
 
 __all__ = ["CrawlerTab"]
@@ -26,7 +26,14 @@ class CrawlerTab(BaseAutoTab):
         self.outlink_expression: str = "window.$wbOutlinks$"
         self.frame_manager: FrameManager = None
         self.crawl_loop: Optional[Task] = None
-        self.frontier: Frontier = Frontier.init(**kwargs.get("frontier"))
+        if self.redis is not None:
+            self.frontier: Union[RedisFrontier, Frontier] = RedisFrontier(
+                self.redis, self.autoid
+            )
+        else:
+            self.frontier: Union[RedisFrontier, Frontier] = Frontier.init_(
+                **kwargs.get("frontier")
+            )
         self._max_behavior_time: int = 60
 
     @classmethod
@@ -41,25 +48,22 @@ class CrawlerTab(BaseAutoTab):
         await self.client.Page.setLifecycleEventsEnabled(True)
         frame_tree = await self.client.Page.getFrameTree()
         self.frame_manager = FrameManager(
-            self.client, frame_tree["frameTree"], loop=self._loop
+            self.client, frame_tree["frameTree"], loop=self.loop
         )
         dir_path = Path(__file__).parent
         async with aiofiles.open(str(dir_path / "js" / "nice.js"), "r") as iin:
             await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
-        self.crawl_loop = self._loop.create_task(self.crawl())
+        await self.frontier.init()
+        self.crawl_loop = self.loop.create_task(self.crawl())
 
     async def close(self) -> None:
-        await super().close()
         if self.crawl_loop is not None:
             self.crawl_loop.cancel()
+        await super().close()
 
     @property
     def main_frame(self) -> Frame:
         return self.frame_manager.mainFrame
-
-    @property
-    def frontier_exhausted(self) -> bool:
-        return self.frontier.exhausted
 
     async def goto(self, url: str, **kwargs: Any) -> None:
         try:
@@ -69,9 +73,10 @@ class CrawlerTab(BaseAutoTab):
 
     async def crawl(self) -> None:
         # loop until frontier is exhausted
-        while not self.frontier.exhausted:
-            print(self.frontier.queue)
-            n_url = self.frontier.pop()
+        while not await self.frontier.exhausted():
+            if self._graceful_shutdown:
+                break
+            n_url = await self.frontier.next_url()
             print(f"navigating to {n_url}")
             await self.goto(n_url)
             # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
@@ -80,19 +85,20 @@ class CrawlerTab(BaseAutoTab):
             behavior = BehaviorManager.behavior_for_url(
                 main_frame.url, self, frame=main_frame
             )
-            # print(f"running behavior {behavior}")
+            print(f"running behavior {behavior}")
             # we have a behavior to be run so run it
             if behavior is not None:
                 # run the behavior in a timed fashion (async_timeout will cancel the corutine if max time is reached)
                 try:
-                    async with timeout(self._max_behavior_time, loop=self._loop):
+                    async with timeout(self._max_behavior_time, loop=self.loop):
                         await behavior.run()
                 except asyncio.TimeoutError:
                     print("timed behavior to")
                     pass
             out_links = await main_frame.evaluate_expression(self.outlink_expression)
-
-            # self.frontier.add_all(out_links)
+            await self.frontier.add_all(out_links)
+            if self._graceful_shutdown:
+                break
 
     async def manual_collect_outlinks(self):
         await self.client.DOM.enable()
@@ -112,5 +118,11 @@ class CrawlerTab(BaseAutoTab):
                 await self.client.Runtime.releaseObject(objectId=obj_id)
         await self.client.DOM.disable()
 
-    def __repr__(self) -> str:
-        return f"CrawlerTab({self.tab_data}"
+    async def shutdown_gracefully(self) -> None:
+        self._graceful_shutdown = True
+        if self.crawl_loop is not None:
+            await self.crawl_loop
+        await self.close()
+
+    def __str__(self) -> str:
+        return f"CrawlerTab(autoid={self.autoid}, url={self.tab_data['url']})"
