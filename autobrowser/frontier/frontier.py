@@ -1,9 +1,10 @@
-from typing import Set, Tuple, List, Union
+import asyncio
+from typing import Set, Tuple, List, Awaitable, ClassVar
 
 import attr
 from aioredis import Redis
 
-from .scope import Scope
+from .scope import Scope, RedisScope
 
 
 @attr.dataclass(slots=True)
@@ -48,35 +49,106 @@ class Frontier(object):
 @attr.dataclass(slots=True)
 class RedisFrontier(object):
     redis: Redis = attr.ib()
-    uid: str = attr.ib(convert=lambda _uid: f"a:{_uid}")
+    autoid: str = attr.ib(convert=lambda aid: f"a:{aid}")
+    scope: RedisScope = attr.ib(init=False)
+    info_key: str = attr.ib(init=False, default=None)
     q_key: str = attr.ib(init=False, default=None)
     pending_key: str = attr.ib(init=False, default=None)
     seen_key: str = attr.ib(init=False, default=None)
-    scope_key: str = attr.ib(init=False, default=None)
-    _loc_len: int = attr.ib(init=False, default=-1)
-    _loc_depth: int = attr.ib(init=False, default=-1)
+    crawl_depth: int = attr.ib(init=False, default=-1)
+    currently_crawling: str = attr.ib(init=False, default=None)
+
+    CRAWL_DEPTH_FIELD: ClassVar[str] = "crawl_depth"
+
+    @scope.default
+    def scope_init(self) -> RedisScope:
+        """Default value for our scope attribute"""
+        return RedisScope(self.redis, self.autoid)
+
+    def q_len(self) -> Awaitable[int]:
+        """Returns an Awaitable that resolves to the length of the frontier's q"""
+        return self.redis.llen(self.q_key)
 
     async def exhausted(self) -> bool:
-        return await self.redis.llen(self.q_key) == 0
+        """Returns an Awaitable that resolves with a boolean that indicates if the frontier is exhausted or not"""
+        return await self.q_len() == 0
 
     async def is_seen(self, url: str) -> bool:
+        """Returns an Awaitable that resolves with a boolean that indicates if the supplied URL has been seen or not"""
         return await self.redis.sismember(self.seen_key, url) == 1
 
     async def add_to_pending(self, url: str) -> None:
+        """Add the supplied URL to the pending set
+
+        :param url: The URL to add to the pending set
+        """
         await self.redis.sadd(self.pending_key, url)
 
     async def remove_from_pending(self, url: str) -> None:
+        """Remove the supplied URL from the pending set
+
+        :param url: The URL to be removed from the pending set
+        """
         await self.redis.srem(self.pending_key, url)
 
-    async def local_populate_frontier(self, depth: int, seed_list: List[str]):
-        self._loc_depth = depth
-        self._loc_len = len(seed_list)
-        for url in seed_list:
-            await self.redis.rpush(self.q_key, f"{url}:0")
-            await self.redis.sadd(self.scope_key, url)
+    async def next_url(self) -> str:
+        """Retrieve the next URL to be crawled from the frontier and updates the pending set
+
+        :return: The next URL to be crawled
+        """
+        if self.currently_crawling is not None:
+            await self.remove_from_pending(self.currently_crawling)
+        self.currently_crawling = next_url = await self.redis.lpop(self.q_key)
+        await self.add_to_pending(next_url)
+        return next_url[: next_url.index(":")]
+
+    async def init(self) -> None:
+        """Initialize the frontier"""
+        self.crawl_depth = await self.redis.hget(self.info_key, self.CRAWL_DEPTH_FIELD)
+        await self.scope.init()
+
+    async def add(self, url: str, depth: int) -> None:
+        """Conditionally adds a URL to frontier.
+
+        The addition condition is not seen and in scope.
+
+        :param url: The URL to maybe add to the frontier
+        :param depth: The depth the URL is to be crawled at
+        """
+        should_add = self.scope.in_scope(url)
+        if should_add and not await self.is_seen(url):
+            await asyncio.gather(
+                self.redis.rpush(self.q_key, f"{url}:{depth}"),
+                self.redis.sadd(self.seen_key, url),
+            )
+
+    async def add_all(self, urls: List[str]) -> None:
+        """Conditionally adds a list of URLs to frontier.
+
+        The addition condition is not seen and in scope.
+
+        :param urls: The list of discovered URL to maybe add to the frontier
+        """
+        next_depth = (
+            int(self.currently_crawling[self.currently_crawling.index(":") + 1]) + 1
+        )
+        if next_depth >= self.crawl_depth:
+            return
+        add_to_seen: List[str] = []
+        add_to_queue: List[str] = []
+        for url in urls:
+            is_seen = await self.is_seen(url)
+            if self.scope.in_scope(url) and not is_seen:
+                add_to_seen.append(url)
+                add_to_queue.append(f"{url}:{next_depth}")
+        if len(add_to_queue) > 0:
+            await asyncio.gather(
+                self.redis.rpush(self.q_key, *add_to_queue),
+                self.redis.sadd(self.seen_key, *add_to_seen),
+            )
 
     def __attrs_post_init__(self):
-        self.q_key = f"{self.uid}:q"
-        self.pending_key = f"{self.uid}:qp"
-        self.seen_key = f"{self.uid}:seen"
-        self.scope_key = f"{self.uid}:scope"
+        self.info_key = f"{self.autoid}:info"
+        self.q_key = f"{self.autoid}:q"
+        self.pending_key = f"{self.autoid}:qp"
+        self.seen_key = f"{self.autoid}:seen"

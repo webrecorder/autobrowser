@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 import logging
-from typing import Dict
 
 from .basebehavior import JSBasedBehavior
 
 __all__ = ["TimelineFeedBehavior"]
 
-logger = logging.getLogger("autobrowser")
+logger = logging.getLogger("TimelineFeed")
 
 
 class TimelineFeedBehavior(JSBasedBehavior):

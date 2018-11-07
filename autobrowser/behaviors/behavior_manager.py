@@ -5,9 +5,8 @@ from typing import Dict, List, Optional, Type, TYPE_CHECKING, Tuple
 
 import attr
 from ruamel.yaml import YAML
-from urlcanon.rules import MatchRule
-
 from simplechrome import Frame
+from urlcanon.rules import MatchRule
 
 if TYPE_CHECKING:
     from .basebehavior import Behavior  # noqa: F401
@@ -37,8 +36,8 @@ def load_behavior_class(handler: Dict[str, str]) -> Type["Behavior"]:
     return behavior
 
 
-@attr.dataclass
-class BehaviorMatcher(MatchRule):
+@attr.dataclass(slots=True)
+class BehaviorMatcher(object):
     """Combines both the matching of URLs to their behaviors and creating the behaviors
     based on the supplied behavior config.
 
@@ -49,6 +48,11 @@ class BehaviorMatcher(MatchRule):
 
     behavior_config: Dict = attr.ib()
     behavior_class: Optional[Type["Behavior"]] = attr.ib(default=None)
+    matcher: MatchRule = attr.ib(init=False)
+
+    @matcher.default
+    def matcher_default(self):
+        self.matcher = MatchRule(**self.behavior_config.get("match"))
 
     def create_behavior(
         self, tab: "BaseAutoTab", frame: Optional[Frame] = None
@@ -65,9 +69,8 @@ class BehaviorMatcher(MatchRule):
             )
         return self.behavior_class(tab, self.behavior_config.get("init"), frame=frame)
 
-    def __attrs_post_init__(self) -> None:
-        """Since we are subclassing MatchRule we must do the super init call here"""
-        super().__init__(**self.behavior_config.get("match"))
+    def applies(self, url: str) -> bool:
+        return self.matcher.applies(url)
 
 
 @attr.dataclass(slots=True)

@@ -1,13 +1,13 @@
-from typing import Set, List, Pattern
+import ujson
+from typing import Set, List
 
 import attr
 from aioredis import Redis
-from urlcanon.parse import parse_url
-from re import compile
+from urlcanon import parse_url, MatchRule
 
 surt_end = b")"
 
-__all__ = ["Scope"]
+__all__ = ["Scope", "RedisScope"]
 
 
 @attr.dataclass(slots=True)
@@ -34,15 +34,30 @@ class Scope(object):
 class RedisScope(object):
     redis: Redis = attr.ib()
     scope_key: str = attr.ib(convert=lambda uid: f"{uid}:scope")
-    scope_values: Set[Pattern] = attr.ib(init=False, factory=set)
+    rules: List[MatchRule] = attr.ib(init=False, factory=list)
 
-    async def retrieve_scope_values(self) -> None:
+    async def init(self) -> None:
+        """Initialize the scope class.
+
+        Retrieves all scope rules from the scope field and populates the rules list
+        """
         sv = await self.redis.smembers(self.scope_key)
-        for p in sv:
-            self.scope_values.add(compile(p))
+        for scope_str in sv:
+            scope = ujson.loads(scope_str)
+            if scope["type"] == "regex":
+                self.rules.append(MatchRule(regex=scope["value"]))
+            else:
+                self.rules.append(MatchRule(surt=scope["value"]))
 
     def in_scope(self, url: str) -> bool:
-        for pattern in self.scope_values:
-            if pattern.match(url):
-                return True
-        return False
+        """Determines if the URL is in scope
+
+        :param url: The url to be tested
+        :return: True if the URL is in scope or false if it is not in scope or is filtered
+        """
+        in_scope = False
+        for rule in self.rules:
+            in_scope = rule.applies(url)
+            if in_scope:
+                break
+        return in_scope

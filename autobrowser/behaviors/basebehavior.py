@@ -3,11 +3,11 @@ import asyncio
 from abc import ABC, abstractmethod
 from asyncio import Task, AbstractEventLoop
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, ClassVar, Awaitable, Any
-from simplechrome.frame_manager import Frame
+from typing import TYPE_CHECKING, Dict, Optional, ClassVar, Any, Awaitable
 
 import aiofiles
 import attr
+from simplechrome.frame_manager import Frame
 
 if TYPE_CHECKING:
     from ..tabs.basetab import BaseAutoTab  # noqa: F401
@@ -99,9 +99,7 @@ class Behavior(ABC):
             await self.pre_action_init()
         self._did_init = True
 
-    def run_task(
-        self, loop: Optional[AbstractEventLoop] = None
-    ) -> Task:
+    def run_task(self, loop: Optional[AbstractEventLoop] = None) -> Task:
         if self._running_task is not None and not self._running_task.done():
             return self._running_task
         if loop is None:
@@ -114,11 +112,10 @@ class Behavior(ABC):
         while not self.done:
             await self.perform_action()
 
-    async def evaluate_in_page(self, js_string: str) -> Any:
+    def evaluate_in_page(self, js_string: str) -> Awaitable[Any]:
         if self.frame is not None:
-            return await self.frame.evaluate_expression(js_string, withCliAPI=True)
-        result = await self.tab.evaluate_in_page(js_string)
-        return result.get("result", {}).get("value")
+            return self.frame.evaluate_expression(js_string, withCliAPI=True)
+        return self.tab.evaluate_in_page(js_string)
 
     def __await__(self):
         return self.run().__await__()

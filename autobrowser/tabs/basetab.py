@@ -23,7 +23,9 @@ logger = logging.getLogger("autobrowser")
 class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
-    def __init__(self, browser: "BaseAutoBrowser", tab_data: Dict[str, str], **kwargs) -> None:
+    def __init__(
+        self, browser: "BaseAutoBrowser", tab_data: Dict[str, str], **kwargs
+    ) -> None:
         super().__init__(loop=asyncio.get_event_loop())
         self.browser: "BaseAutoBrowser" = browser
         self.tab_data: Dict[str, str] = tab_data
@@ -137,15 +139,15 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         :param js_string: The string of JavaScript to be evaluated
         :return: The results of the evaluation if any
         """
-        return await self.client.Runtime.evaluate(
+        results = await self.client.Runtime.evaluate(
             js_string,
             contextId=contextId,
             userGesture=True,
             awaitPromise=True,
             includeCommandLineAPI=True,
             returnByValue=True,
-            generatePreview=True,
         )
+        return results.get("result", {}).get("value")
 
     async def goto(self, url: str, **kwargs: Any) -> Dict:
         """Initiates browser navigation to the supplied url.

@@ -3,7 +3,6 @@ import asyncio
 import logging
 
 from .basebehavior import Behavior, JSBasedBehavior
-import attr
 
 __all__ = ["AutoScrollBehavior", "ScrollBehavior"]
 
@@ -69,4 +68,3 @@ class AutoScrollBehavior(JSBasedBehavior):
         await self.tab.net_idle(global_wait=20)
         print(f"AutoScrollBehavior network_idle")
         self._finished()
-
