@@ -52,7 +52,7 @@ class BehaviorMatcher(object):
 
     @matcher.default
     def matcher_default(self):
-        self.matcher = MatchRule(**self.behavior_config.get("match"))
+        return MatchRule(**self.behavior_config.get("match"))
 
     def create_behavior(
         self, tab: "BaseAutoTab", frame: Optional[Frame] = None
