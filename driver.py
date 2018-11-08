@@ -21,6 +21,11 @@ except ImportError:
 
 logger = logging.getLogger("autobrowser")
 
+
+async def run_driver():
+    await Driver(loop=asyncio.get_event_loop()).run()
+
+
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    aiorun(Driver().run())
+    aiorun(run_driver())

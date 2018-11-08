@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import logging
-from asyncio import Task, Future
+from asyncio import Task, CancelledError
 from pathlib import Path
 from typing import List, Optional, Any, Union
 
@@ -57,8 +57,12 @@ class CrawlerTab(BaseAutoTab):
         self.crawl_loop = self.loop.create_task(self.crawl())
 
     async def close(self) -> None:
-        if self.crawl_loop is not None:
+        if self.crawl_loop is not None and not self.crawl_loop.done():
             self.crawl_loop.cancel()
+            try:
+                await self.crawl_loop
+            except CancelledError:
+                pass
         await super().close()
 
     @property

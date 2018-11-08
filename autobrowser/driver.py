@@ -3,7 +3,7 @@ import asyncio
 import logging
 import signal
 import ujson
-from asyncio import AbstractEventLoop, Task, Future
+from asyncio import AbstractEventLoop, Task, Future, CancelledError
 from typing import Dict
 
 import aioredis
@@ -18,7 +18,7 @@ __all__ = ["Driver"]
 logger = logging.getLogger("autobrowser")
 
 
-@attr.dataclass(slots=True)
+@attr.dataclass(slots=True, cmp=False)
 class Driver(object):
     loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
     browsers: Dict[str, BaseAutoBrowser] = attr.ib(init=False, factory=dict)
@@ -47,6 +47,11 @@ class Driver(object):
         await self.init()
         await self.shutdown_sig_future
         self.pubsub_task.cancel()
+        try:
+            await self.pubsub_task
+        except CancelledError:
+            pass
+        self.ae_channel.close()
         for browser in self.browsers.values():
             await browser.shutdown_gracefully()
         self.browsers.clear()

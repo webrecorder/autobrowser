@@ -1,8 +1,9 @@
 import asyncio
-from typing import Set, Tuple, List, Awaitable, ClassVar
+from typing import Set, Tuple, List, Awaitable, ClassVar, Dict, Union
 
 import attr
 from aioredis import Redis
+import ujson
 
 from .scope import Scope, RedisScope
 
@@ -58,7 +59,7 @@ class RedisFrontier(object):
     pending_key: str = attr.ib(init=False, default=None)
     seen_key: str = attr.ib(init=False, default=None)
     crawl_depth: int = attr.ib(init=False, default=-1)
-    currently_crawling: str = attr.ib(init=False, default=None)
+    currently_crawling: Dict[str, Union[str, int]] = attr.ib(init=False, default=None)
 
     CRAWL_DEPTH_FIELD: ClassVar[str] = "crawl_depth"
 
@@ -69,10 +70,7 @@ class RedisFrontier(object):
 
     def next_depth(self) -> int:
         if self.currently_crawling is not None:
-            return (
-                int(self.currently_crawling[self.currently_crawling.rindex(":") + 1])
-                + 1
-            )
+            return self.currently_crawling['depth']
         return -1
 
     async def q_len(self) -> int:
@@ -101,16 +99,20 @@ class RedisFrontier(object):
         """
         return self.redis.srem(self.pending_key, url)
 
+    async def _pop_url(self) -> Dict[str, Union[str, int]]:
+        udict_str = await self.redis.lpop(self.q_key)
+        return ujson.loads(udict_str)
+
     async def next_url(self) -> str:
         """Retrieve the next URL to be crawled from the frontier and updates the pending set
 
         :return: The next URL to be crawled
         """
         if self.currently_crawling is not None:
-            await self.remove_from_pending(self.currently_crawling)
-        self.currently_crawling = next_url = await self.redis.lpop(self.q_key)
-        await self.add_to_pending(next_url)
-        return next_url[: next_url.rindex(":")]
+            await self.remove_from_pending(self.currently_crawling['url'])
+        self.currently_crawling = await self._pop_url()
+        await self.add_to_pending(self.currently_crawling['url'])
+        return self.currently_crawling['url']
 
     async def init(self) -> None:
         """Initialize the frontier"""
@@ -128,7 +130,7 @@ class RedisFrontier(object):
         should_add = self.scope.in_scope(url)
         if should_add and not await self.is_seen(url):
             await asyncio.gather(
-                self.redis.rpush(self.q_key, f"{url}:{depth}"),
+                self.redis.rpush(self.q_key, ujson.dumps(dict(url=url, depth=depth))),
                 self.redis.sadd(self.seen_key, url),
             )
 
@@ -147,9 +149,8 @@ class RedisFrontier(object):
         for url in urls:
             is_seen = await self.is_seen(url)
             if self.scope.in_scope(url) and not is_seen:
-                print(f"adding {url}:{next_depth}")
                 add_to_seen.append(url)
-                add_to_queue.append(f"{url}:{next_depth}")
+                add_to_queue.append(ujson.dumps(dict(url=url, depth=next_depth)))
         if len(add_to_queue) > 0:
             await asyncio.gather(
                 self.redis.rpush(self.q_key, *add_to_queue),

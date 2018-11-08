@@ -41,13 +41,9 @@ class RedisScope(object):
 
         Retrieves all scope rules from the scope field and populates the rules list
         """
-        sv = await self.redis.smembers(self.scope_key)
-        for scope_str in sv:
+        for scope_str in await self.redis.smembers(self.scope_key):
             scope = ujson.loads(scope_str)
-            if scope["type"] == "regex":
-                self.rules.append(MatchRule(regex=scope["value"]))
-            else:
-                self.rules.append(MatchRule(surt=scope["value"]))
+            self.rules.append(MatchRule(**scope))
 
     def in_scope(self, url: str) -> bool:
         """Determines if the URL is in scope

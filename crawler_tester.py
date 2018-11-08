@@ -9,8 +9,6 @@ import aioredis
 import uvloop
 from aioredis import Redis
 from cripy import Client
-import signal
-
 from urlcanon import parse_url
 
 from autobrowser.tabs.crawlerTab import CrawlerTab
@@ -97,22 +95,23 @@ q_key = f"a:{dummy_auto_id}:q"
 async def reset_redis(redis: Redis):
     await redis.delete(q_key, info_key, seen_key, scope_key)
     await redis.hset(info_key, "crawl_depth", 2)
-    await redis.rpush(q_key, "https://twitter.com/webrecorder_io:0")
+    await redis.rpush(
+        q_key, ujson.dumps(dict(url="https://twitter.com/webrecorder_io", depth=0))
+    )
     await redis.sadd(seen_key, "https://twitter.com/webrecorder_io")
     await redis.sadd(
         scope_key,
         ujson.dumps(
             dict(
-                type="surt",
-                value=parse_url("https://twitter.com/")
+                surt=parse_url("https://twitter.com/")
                 .surt(with_scheme=False)
-                .decode("utf-8"),
+                .decode("utf-8")
             )
         ),
     )
 
 
-RESET_REDIS = False
+RESET_REDIS = True
 
 
 async def crawl_baby_crawl() -> None:
