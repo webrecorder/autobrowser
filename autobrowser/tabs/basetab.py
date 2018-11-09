@@ -6,6 +6,7 @@ from abc import ABCMeta, abstractmethod
 from asyncio import Task, AbstractEventLoop
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from aioredis import Redis
+import textwrap
 
 from cripy import Client, connect
 from pyee import EventEmitter
@@ -48,6 +49,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self._running: bool = False
         self._reconnecting: bool = False
         self._reconnect_promise: Optional[Task] = None
+        self._behavior: Optional[Behavior] = None
         self.behaviors: List[Behavior] = []
         self.all_behaviors: Optional[Task] = None
         self.target_info: Optional[Dict] = None
@@ -84,6 +86,16 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """Is this tab attempting to reconnect to the tab"""
         return self._running and self._reconnecting
 
+    def add_behavior(self, behavior: Behavior) -> None:
+        """A Page behavior to the list of behaviors to be run per page
+
+        :param behavior: The behavior to be added
+        """
+        self.behaviors.append(behavior)
+
+    def set_behavior(self, behavior: Behavior) -> None:
+        self._behavior = behavior
+
     def pause_behaviors(self) -> None:
         """Sets the behaviors paused flag to true"""
         self._behaviors_paused = True
@@ -91,15 +103,6 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
     def resume_behaviors(self) -> None:
         """Sets the behaviors paused flag to false"""
         self._behaviors_paused = False
-
-    async def wait_for_reconnect(self) -> None:
-        """If the client connection has been disconnected and we are
-        reconnecting, waits for reconnection to happen"""
-        if not self.reconnecting or self._reconnect_promise is None:
-            return
-        if self._reconnect_promise.done():
-            return
-        await self._reconnect_promise
 
     def stop_reconnecting(self) -> None:
         """Stops the reconnection process if it is under way"""
@@ -120,6 +123,23 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
             self._reconnecting = True
             self._reconnect_promise = self._loop.create_task(self._wait_for_reconnect())
 
+    async def wait_for_reconnect(self) -> None:
+        """If the client connection has been disconnected and we are
+        reconnecting, waits for reconnection to happen"""
+        if not self.reconnecting or self._reconnect_promise is None:
+            return
+        if self._reconnect_promise.done():
+            return
+        await self._reconnect_promise
+
+    def net_idle(self, *args: Any, **kwargs: Any) -> Task:
+        """Returns a future that  resolves once network idle occurs.
+
+        See the options of autobrowser.util.netidle.monitor for a complete
+        description of the available arguments
+        """
+        return monitor(self.client, *args, **kwargs)
+
     async def _wait_for_reconnect(self) -> None:
         """Attempt to reconnect to browser tab after client connection was replayed with
         the devtools"""
@@ -135,21 +155,6 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         if self._reconnect_promise and not self._reconnect_promise.done():
             self._reconnect_promise.cancel()
 
-    def add_behavior(self, behavior: Behavior) -> None:
-        """A Page behavior to the list of behaviors to be run per page
-
-        :param behavior: The behavior to be added
-        """
-        self.behaviors.append(behavior)
-
-    def net_idle(self, *args: Any, **kwargs: Any) -> Task:
-        """Returns a future that  resolves once network idle occurs.
-
-        See the options of autobrowser.util.netidle.monitor for a complete
-        description of the available arguments
-        """
-        return monitor(self.client, *args, **kwargs)
-
     async def evaluate_in_page(
         self, js_string: str, contextId: Optional[Any] = None
     ) -> Dict:
@@ -158,6 +163,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         :param js_string: The string of JavaScript to be evaluated
         :return: The results of the evaluation if any
         """
+        logger.info(f"BaseAutoTab[evaluate_in_page]: evaluating behavior js in page")
         results = await self.client.Runtime.evaluate(
             js_string,
             contextId=contextId,
@@ -178,6 +184,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         :param kwargs: Additional arguments to Page.navigate
         :return: The information returned by Page.navigate
         """
+        logger.info(f"BaseAutoTab[goto]: navigating to {url}")
         return await self.client.Page.navigate(url, **kwargs)
 
     @classmethod
@@ -200,11 +207,12 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """
         if self._running:
             return
-        logger.debug("BaseAutoTab.init")
+        logger.info("BaseAutoTab[init]: initializing")
         self._running = True
+        logger.info(f"BaseAutoTab[init]: connecting to the browser {self.tab_data}")
         self.client = await connect(self.tab_data["webSocketDebuggerUrl"], remote=True)
 
-        logger.debug("BaseAutoTab.init connected")
+        logger.info("BaseAutoTab[init]: connected to browser")
 
         self.client.set_close_callback(lambda: self.emit("connection-closed"))
 
@@ -217,7 +225,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
             self.client.Runtime.enable(),
         )
 
-        logger.debug("BaseAutoTab.init enabled domains")
+        logger.info("BaseAutoTab[init]: enabled domains")
 
     @abstractmethod
     async def close(self) -> None:
@@ -227,6 +235,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         implementation. This can be the only call in their
         implementation.
         """
+        logger.info("BaseAutoTab[close]: closing")
         if self.reconnecting:
             self.stop_reconnecting()
         if self.client:
@@ -235,11 +244,12 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self._running = False
 
     async def shutdown_gracefully(self) -> None:
+        logger.info("BaseAutoTab[shutdown_gracefully]: shutting down")
         self._graceful_shutdown = True
         await self.close()
 
     def __str__(self) -> str:
-        return f"BaseAutoTab(autoid={self.autoid}, {self.tab_data})"
+        return f"{self.__class__.__name__}(autoid={self.autoid}, {self.tab_data})"
 
     def __repr__(self) -> str:
         return self.__str__()

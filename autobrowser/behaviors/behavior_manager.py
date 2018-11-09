@@ -2,6 +2,7 @@
 from importlib import import_module
 from pathlib import Path
 from typing import Dict, List, Optional, Type, TYPE_CHECKING, Tuple
+import logging
 
 import attr
 from ruamel.yaml import YAML
@@ -18,6 +19,8 @@ __all__ = [
     "load_behavior_class",
     "create_default_behavior_man",
 ]
+
+logger = logging.getLogger("autobrowser")
 
 
 def load_behavior_class(handler: Dict[str, str]) -> Type["Behavior"]:
@@ -113,8 +116,14 @@ class _BehaviorManager(object):
         """
         matched_behavior = self.behavior_for_url_exact(url, tab, frame=frame)
         if matched_behavior is not None:
+            logger.info(
+                f"BehaviorManager[behavior_for_url]: Matched {url} to {matched_behavior}"
+            )
             return matched_behavior
         clazz, init = self.default_behavior_init
+        logger.info(
+            f"BehaviorManager[behavior_for_url]: No exact behavior match for {url}, using autoscroll behavior"
+        )
         return clazz(tab, init, frame)
 
 

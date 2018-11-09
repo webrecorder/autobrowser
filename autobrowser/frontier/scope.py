@@ -1,3 +1,4 @@
+import logging
 import ujson
 from typing import Set, List
 
@@ -8,6 +9,9 @@ from urlcanon import parse_url, MatchRule
 surt_end = b")"
 
 __all__ = ["Scope", "RedisScope"]
+
+
+logger = logging.getLogger("autobrowser")
 
 
 @attr.dataclass(slots=True)
@@ -44,6 +48,7 @@ class RedisScope(object):
         for scope_str in await self.redis.smembers(self.scope_key):
             scope = ujson.loads(scope_str)
             self.rules.append(MatchRule(**scope))
+        logger.info(f"RedisScope[init]: retrieved {len(self.rules)} rules")
 
     def in_scope(self, url: str) -> bool:
         """Determines if the URL is in scope

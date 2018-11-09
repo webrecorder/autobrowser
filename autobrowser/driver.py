@@ -8,14 +8,13 @@ from asyncio import AbstractEventLoop, Task, Future, CancelledError
 from typing import Dict
 
 import aioredis
-import os
 import attr
+import os
 from aioredis import Redis, Channel
 
 from .basebrowser import BaseAutoBrowser, DynamicBrowser
 
-__all__ = ["Driver"]
-
+__all__ = ["Driver", "SingleBrowserDriver"]
 
 logger = logging.getLogger("autobrowser")
 
@@ -46,7 +45,9 @@ class Driver(object):
         self.pubsub_task = self.loop.create_task(self.pubsub_loop())
 
     async def run(self) -> None:
+        logger.info('Driver.run')
         await self.init()
+        logger.info('Driver waiting for shutdown')
         await self.shutdown_sig_future
         self.pubsub_task.cancel()
         try:
@@ -108,27 +109,29 @@ class SingleBrowserDriver(object):
         self.shutdown_sig_future.set_result(True)
 
     async def run(self) -> None:
-        redis_url = os.environ.get('REDIS_URL', 'redis://localhost')
-        print('REDIS', redis_url)
+        logger.info('SingleBrowserDriver[run]: started')
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost")
+        print("REDIS", redis_url)
         self.redis = await aioredis.create_redis(
-            redis_url,
-            loop=self.loop,
-            encoding='utf-8'
+            redis_url, loop=self.loop, encoding="utf-8"
         )
         self.shutdown_sig_future = self.loop.create_future()
         self.loop.add_signal_handler(signal.SIGTERM, self.sigterm_handler)
 
-        logger.debug('Connecting to Auto-Browser')
+        logger.debug("SingleBrowserDriver[run]: connecting to Auto-Browser")
 
         browser = BaseAutoBrowser(
-            autoid=os.environ.get('AUTO_ID'),
+            autoid=os.environ.get("AUTO_ID"),
             tab_class="CrawlerTab",
             loop=self.loop,
             redis=self.redis,
         )
 
-        ip = socket.gethostbyname(os.environ.get('BROWSER_HOST'))
+        ip = socket.gethostbyname(os.environ.get("BROWSER_HOST"))
 
         await browser.init(ip=ip)
+        logger.info('SingleBrowserDriver[run]: waiting for shutdown')
         await self.shutdown_sig_future
-
+        await browser.shutdown_gracefully()
+        self.redis.close()
+        await self.redis.wait_closed()

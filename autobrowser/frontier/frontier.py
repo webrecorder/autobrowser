@@ -1,11 +1,14 @@
 import asyncio
 from typing import Set, Tuple, List, Awaitable, ClassVar, Dict, Union
+import logging
 
 import attr
 from aioredis import Redis
 import ujson
 
 from .scope import Scope, RedisScope
+
+logger = logging.getLogger("autobrowser")
 
 
 @attr.dataclass(slots=True)
@@ -70,7 +73,7 @@ class RedisFrontier(object):
 
     def next_depth(self) -> int:
         if self.currently_crawling is not None:
-            return self.currently_crawling['depth']
+            return self.currently_crawling["depth"] + 1
         return -1
 
     async def q_len(self) -> int:
@@ -109,14 +112,23 @@ class RedisFrontier(object):
         :return: The next URL to be crawled
         """
         if self.currently_crawling is not None:
-            await self.remove_from_pending(self.currently_crawling['url'])
+            logger.info(
+                f"RedisFrontier[next_url]: removing the previous URL {self.currently_crawling} from the pending set"
+            )
+            await self.remove_from_pending(self.currently_crawling["url"])
         self.currently_crawling = await self._pop_url()
-        await self.add_to_pending(self.currently_crawling['url'])
-        return self.currently_crawling['url']
+        logger.info(
+            f"RedisFrontier[next_url]: the next URL is {self.currently_crawling}"
+        )
+        await self.add_to_pending(self.currently_crawling["url"])
+        return self.currently_crawling["url"]
 
     async def init(self) -> None:
         """Initialize the frontier"""
-        self.crawl_depth = int(await self.redis.hget(self.info_key, self.CRAWL_DEPTH_FIELD) or 0)
+        self.crawl_depth = int(
+            await self.redis.hget(self.info_key, self.CRAWL_DEPTH_FIELD) or 0
+        )
+        logger.info(f"RedisFrontier[init]: crawl depth = {self.crawl_depth}")
         await self.scope.init()
 
     async def add(self, url: str, depth: int) -> None:
@@ -142,16 +154,26 @@ class RedisFrontier(object):
         :param urls: The list of discovered URL to maybe add to the frontier
         """
         next_depth = self.next_depth()
+        logger.info(
+            f"RedisFrontier[add_all]: The next depth is {next_depth}. Max depth = {self.crawl_depth}"
+        )
         if next_depth > self.crawl_depth:
             return
         add_to_seen: List[str] = []
         add_to_queue: List[str] = []
         for url in urls:
             is_seen = await self.is_seen(url)
-            if self.scope.in_scope(url) and not is_seen:
+            in_scope = self.scope.in_scope(url)
+            logger.info(
+                f'RedisFrontier[add_all]: {{"url": "{url}", "seen": '
+                f'{is_seen}, "in_scope": {in_scope}, "depth": {next_depth}}}'
+            )
+            if in_scope and not is_seen:
                 add_to_seen.append(url)
                 add_to_queue.append(ujson.dumps(dict(url=url, depth=next_depth)))
-        if len(add_to_queue) > 0:
+        qlen = len(add_to_queue)
+        logger.info(f"RedisFrontier[add_all]: adding {qlen} urls to the frontier")
+        if qlen > 0:
             await asyncio.gather(
                 self.redis.rpush(self.q_key, *add_to_queue),
                 self.redis.sadd(self.seen_key, *add_to_seen),

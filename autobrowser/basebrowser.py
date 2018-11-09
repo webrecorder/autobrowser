@@ -6,10 +6,10 @@ from asyncio import AbstractEventLoop
 from aiohttp import ClientSession
 from pyee import EventEmitter
 from redis import Redis
-
+import ujson
 from .tabs import TAB_CLASSES, BaseAutoTab
 
-__all__ = ["BaseAutoBrowser"]
+__all__ = ["BaseAutoBrowser", "DynamicBrowser"]
 
 logger = logging.getLogger("autobrowser")
 
@@ -54,10 +54,7 @@ class BaseAutoBrowser(EventEmitter):
         return self._loop
 
     async def init(self, ip: str) -> None:
-        tab_datas = None
-
         tab_datas = await self.wait_for_tabs(ip)
-
         self.ip = ip
         self.tabs.clear()
         for tab_data in tab_datas:
@@ -67,7 +64,7 @@ class BaseAutoBrowser(EventEmitter):
             await tab.init()
             self.tabs.append(tab)
 
-        #self.emit("browser_added", reqid)
+        # self.emit("browser_added", reqid)
 
     async def close(self) -> None:
         self.running = False
@@ -90,12 +87,12 @@ class BaseAutoBrowser(EventEmitter):
     async def find_browser_tabs(
         self, ip: str, url: Optional[str] = None, require_ws: Optional[bool] = True
     ) -> List[Dict[str, str]]:
-        async with ClientSession() as session:
+        async with ClientSession(json_serialize=ujson.dumps) as session:
             try:
                 res = await session.get(self.CDP_JSON.format(ip=ip))
                 tabs = await res.json()
             except Exception as e:
-                logger.debug(str(e))
+                logger.info(str(e))
                 return []
 
         filtered_tabs = []
@@ -132,7 +129,7 @@ class BaseAutoBrowser(EventEmitter):
     async def add_browser_tab(self, ip: str) -> Optional[Dict[str, str]]:
         tab = None  # type: Optional[Dict[str, str]]
         try:
-            async with ClientSession() as session:
+            async with ClientSession(json_serialize=ujson.dumps) as session:
                 res = await session.get(self.CDP_JSON_NEW.format(ip=ip))
                 tab = await res.json()
         except Exception as e:
@@ -146,15 +143,14 @@ class DynamicBrowser(BaseAutoBrowser):
     INIT_BROWSER_URL: ClassVar[str] = "/init_browser?reqid={reqid}"
     GET_BROWSER_INFO_URL: ClassVar[str] = "/info/{reqid}"
 
-    def __init__(self, **kwargs):
-        self.api_host = kwargs.pop('api_host', '')
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.api_host = kwargs.pop("api_host", "")
         self.reqid = None
-
-        super(DynamicBrowser, self).__init__(**kwargs)
-
         self.base_ip_url = f"{self.api_host}{self.GET_BROWSER_INFO_URL}"
 
     async def init(self, reqid: Optional[str] = None) -> None:
+        logger.info('DynamicBrowser[init]: initializing')
         tab_datas = None
         ip = None
 
@@ -162,12 +158,12 @@ class DynamicBrowser(BaseAutoBrowser):
         if reqid is not None:
             ip = await self.get_ip_for_reqid(reqid)
 
-        print('IP', ip)
+        print("IP", ip)
 
         if ip is not None:
             tab_datas = await self.wait_for_tabs(ip)
 
-        print('TAB_DATAS', tab_data)
+        print("TAB_DATAS", tab_datas)
 
         # no tab found, init new browser
         if tab_datas is None:
@@ -178,7 +174,7 @@ class DynamicBrowser(BaseAutoBrowser):
 
             results = await self.init_new_browser()
             if results is not None:
-                reqid = results['reqid']
+                reqid = results["reqid"]
                 ip = results["ip"]
                 tab_datas = results["tab_datas"]
 
@@ -199,10 +195,9 @@ class DynamicBrowser(BaseAutoBrowser):
     async def reinit(self):
         if self.running:
             return
+        logger.info(f"DynamicBrowser[reinit]: autoid = {self.autoid}")
 
         await self.init()
-
-        logger.debug("Auto Browser Re-Inited: " + self.autoid)
 
     async def get_ip_for_reqid(self, reqid: str) -> Optional[str]:
         """Retrieve the ip address associated with a requests id
@@ -210,9 +205,9 @@ class DynamicBrowser(BaseAutoBrowser):
         :param reqid: The request id to retrieve the ip address for
         :return: The ip address associated with the request id if it exists
         """
-        logger.debug(f"BaseAutoBrowser.get_ip_for_reqid({reqid})")
+        logger.info(f"DynamicBrowser[get_ip_for_reqid]: reqid = {reqid}, autoid = {self.autoid}")
 
-        async with ClientSession() as session:
+        async with ClientSession(json_serialize=ujson.dumps) as session:
             try:
                 res = await session.get(self.base_ip_url.format(reqid=reqid))
                 json = await res.json()
@@ -225,41 +220,40 @@ class DynamicBrowser(BaseAutoBrowser):
         self
     ) -> Optional[Dict[str, Union[str, List[Dict[str, str]]]]]:
         reqid = await self.stage_new_browser(self.browser_id, self.cdata)
+        logger.info(f"DynamicBrowser[init_new_browser]: reqid = {reqid}, autoid = {self.autoid}")
 
         # wait for browser init
-        async with ClientSession() as session:
+        async with ClientSession(json_serialize=ujson.dumps) as session:
             while True:
                 response = await session.get(
                     self.api_host + self.INIT_BROWSER_URL.format(reqid=reqid),
-                    headers={'Host': 'localhost'}
+                    headers={"Host": "localhost"},
                 )
 
                 try:
                     res = await response.json()  # type: Dict[str, str]
                 except Exception as e:
-                    logger.debug("Browser Init Failed: " + str(e))
+                    logger.info(f"DynamicBrowser[init_new_browser]: Browser Init Failed {str(e)}")
                     return None
 
                 if "cmd_port" in res:
                     break
 
-                logger.debug("Waiting for Browser: " + str(res))
+                logger.info("Waiting for Browser: " + str(res))
                 await asyncio.sleep(self.WAIT_TIME)
 
-        logger.debug("Launched: " + str(res))
+        logger.info(f"DynamicBrowser[init_new_browser]: Launched {str(res)}")
 
-        tab_datas = await self.wait_for_tabs(res.get('ip'))
+        tab_datas = await self.wait_for_tabs(res.get("ip"))
+        logger.info(f"DynamicBrowser[init_new_browser]: got tab datas {tab_datas}")
 
-        return {'ip': res.get('ip'),
-                'reqid': reqid,
-                'tab_datas': tab_datas
-               }
+        return {"ip": res.get("ip"), "reqid": reqid, "tab_datas": tab_datas}
 
     async def stage_new_browser(
         self, browser_id: str, data: Any
     ) -> Union[str, Dict[str, str]]:
         try:
-            async with ClientSession() as session:
+            async with ClientSession(json_serialize=ujson.dumps) as session:
                 req_url = self.REQ_BROWSER_URL.format(browser=browser_id)
                 res = await session.post(self.api_host + req_url, data=data)
                 json = await res.json()  # type: Dict[str, str]
@@ -273,4 +267,3 @@ class DynamicBrowser(BaseAutoBrowser):
             return {"error": "not_inited", "browser_id": browser_id}
 
         return reqid
-

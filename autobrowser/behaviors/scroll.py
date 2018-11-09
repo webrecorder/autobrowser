@@ -63,8 +63,8 @@ class AutoScrollBehavior(JSBasedBehavior):
     """
 
     async def perform_action(self) -> None:
-        print(f"AutoScrollBehavior.run")
         await self.evaluate_in_page(self._resource)
+        logger.info(f"AutoScrollBehavior[perform_action]: waiting for network_idle")
         await self.tab.net_idle(global_wait=20)
-        print(f"AutoScrollBehavior network_idle")
+        logger.info(f"AutoScrollBehavior[perform_action]: network_idle")
         self._finished()

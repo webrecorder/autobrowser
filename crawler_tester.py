@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import sys
 import traceback
 import ujson
 from asyncio import AbstractEventLoop
@@ -14,9 +16,7 @@ from urlcanon import parse_url
 from autobrowser.tabs.crawlerTab import CrawlerTab
 
 # import sys
-# logger = logging.getLogger('websockets')
-# logger.setLevel(logging.DEBUG)
-# logger.addHandler(logging.StreamHandler(sys.stdout))
+
 try:
     from asyncio.runners import run as aiorun
 except ImportError:
@@ -102,16 +102,16 @@ async def reset_redis(redis: Redis):
     await redis.sadd(
         scope_key,
         ujson.dumps(
-            dict(
-                surt=parse_url("https://twitter.com/")
-                .surt(with_scheme=False)
-                .decode("utf-8")
-            )
+            dict(surt=parse_url("https://twitter.com/").surt().decode("utf-8"))
         ),
     )
 
 
 RESET_REDIS = True
+
+logger = logging.getLogger("autobrowser")
+logger.setLevel(logging.DEBUG)
+# logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 async def crawl_baby_crawl() -> None:

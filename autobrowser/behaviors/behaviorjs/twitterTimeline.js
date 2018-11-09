@@ -179,7 +179,26 @@
     return clicked;
   }
 
-  const outlinks = new Set();
+  if (typeof window.$wbOutlinkSet$ === 'undefined') {
+    Object.defineProperty(window, '$wbOutlinkSet$', {
+      value: new Set(),
+      enumerable: false
+    });
+  } else {
+    window.$wbOutlinkSet$.clear();
+  }
+
+  if (typeof window.$wbOutlinks$ === 'undefined') {
+    Object.defineProperty(window, '$wbOutlinks$', {
+      get() {
+        return Array.from(window.$wbOutlinkSet$);
+      },
+      set() {},
+      enumerable: false
+    });
+  }
+
+  const outlinks = window.$wbOutlinkSet$;
   const goodSchemes = { 'http:': true, 'https:': true };
   const outLinkURLParser = new URL('about:blank');
   const outlinkSelector = 'a[href], area[href]';
@@ -219,14 +238,6 @@
   function collectOutlinksFrom(queryFrom) {
     addOutLinks(queryFrom.querySelectorAll(outlinkSelector));
   }
-
-  Object.defineProperty(window, '$wbOutlinks$', {
-    get() {
-      return Array.from(outlinks);
-    },
-    set() {},
-    enumerable: false
-  });
 
   addBehaviorStyle(
     '.wr-debug-visited {border: 6px solid #3232F1;} .wr-debug-visited-thread-reply {border: 6px solid green;} .wr-debug-visited-overlay {border: 6px solid pink;} .wr-debug-click {border: 6px solid red;}'

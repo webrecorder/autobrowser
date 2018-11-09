@@ -1,7 +1,7 @@
 import asyncio
 import logging
-import os
 
+import os
 import uvloop
 
 from autobrowser.driver import Driver, SingleBrowserDriver
@@ -20,18 +20,22 @@ except ImportError:
             _loop.close()
 
 
-logger = logging.getLogger("autobrowser")
+logger = logging.getLogger('autobrowser')
+logger.setLevel(logging.DEBUG)
+# logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 async def run_driver():
+    loop = asyncio.get_event_loop()
     if os.environ.get('BROWSER_HOST'):
-        cls = SingleBrowserDriver
+        logger.info('run_driver: using SingleBrowserDriver')
+        cls = SingleBrowserDriver(loop=loop)
     else:
-        cls = Driver
+        logger.info('run_driver: using Driver')
+        cls = Driver(loop=loop)
 
-    await cls(loop=asyncio.get_event_loop()).run()
+    await cls.run()
 
 
 if __name__ == "__main__":
-    logger.setLevel(logging.DEBUG)
     aiorun(run_driver())

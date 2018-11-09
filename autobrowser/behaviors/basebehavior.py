@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import logging
 from abc import ABC, abstractmethod
 from asyncio import Task, AbstractEventLoop
 from pathlib import Path
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
 
 
 __all__ = ["Behavior", "JSBasedBehavior"]
+
+logger = logging.getLogger("autobrowser")
 
 
 @attr.dataclass(slots=True)
@@ -44,6 +47,10 @@ class Behavior(ABC):
 
     def __attrs_post_init__(self):
         self._pre_init = self.conf.get("pre_init", self._pre_init)
+
+    @property
+    def _clz_name(self) -> str:
+        return self.__class__.__name__
 
     @property
     def done(self) -> bool:
@@ -93,6 +100,9 @@ class Behavior(ABC):
     async def init(self) -> None:
         if self._did_init:
             return
+        logger.info(
+            f"{self._clz_name}[init]: have resource = {self._has_resource}, pre init = {self._pre_init}"
+        )
         if self._has_resource:
             await self.load_resources()
         if self._pre_init:
@@ -109,8 +119,10 @@ class Behavior(ABC):
 
     async def run(self) -> None:
         await self.init()
+        logger.info(f"{self._clz_name}[run]: running behavior")
         while not self.done:
             await self.perform_action()
+        logger.info(f"{self._clz_name}[run]: behavior done")
 
     def evaluate_in_page(self, js_string: str) -> Awaitable[Any]:
         if self.frame is not None:
@@ -135,13 +147,19 @@ class JSBasedBehavior(Behavior, ABC):
     _wr_action_iter_next: ClassVar[str] = "window.$WRIteratorHandler$()"
 
     async def pre_action_init(self):
+        logger.info(f"{self._clz_name}[pre_action_init]: performing pre action init")
         # check if we injected our setup code or not
         # did not so inject it
         await self.evaluate_in_page(self._resource)
 
     async def load_resources(self) -> None:
         resource = self.conf.get("resource")
-        if self.conf.get("pkg_resource", True):
+        is_pkg = self.conf.get("pkg_resource", True)
+        logger.info(
+            f"{self._clz_name}[load_resources]: loading {'pgk' if is_pkg else 'external'} resource"
+        )
+        if is_pkg:
             resource = str(Path(__file__).parent / "behaviorjs" / resource)
         async with aiofiles.open(resource, "r") as iin:
             self._resource = await iin.read()
+        logger.info(f"{self._clz_name}[load_resources]: resources loaded")
