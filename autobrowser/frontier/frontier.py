@@ -71,7 +71,24 @@ class RedisFrontier(object):
         """Default value for our scope attribute"""
         return RedisScope(self.redis, self.autoid)
 
+    async def wait_for_populated_q(self, wait_time: Union[int, float] = 60) -> None:
+        """Waits for the q to become populated by polling exhausted at wait_time intervals.
+
+        :param wait_time: The interval time in seconds for polling exhausted. Defaults to 60
+        """
+        logger.info(
+            f"RedisFrontier[wait_for_populated_q]: starting wait loop, checking every {wait_time} seconds"
+        )
+        loop = asyncio.get_event_loop()
+        while await self.exhausted():
+            logger.info(
+                f"RedisFrontier[wait_for_populated_q]: q still empty, waiting another {wait_time} seconds"
+            )
+            await asyncio.sleep(wait_time, loop=loop)
+        logger.info(f"RedisFrontier[wait_for_populated_q]: q populated")
+
     def next_depth(self) -> int:
+        """Returns the next depth by adding one to the depth of the currently crawled URLs depth"""
         if self.currently_crawling is not None:
             return self.currently_crawling["depth"] + 1
         return -1

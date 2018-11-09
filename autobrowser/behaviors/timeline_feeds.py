@@ -32,7 +32,9 @@ class TimelineFeedNetIdle(JSBasedBehavior):
         # if we are done then tell the tab we are done
         done = next_state.get("done")
         if not done and next_state.get("wait"):
-            logger.info(f"TimelineFeedBehavior[perform_action]: waiting for network idle")
+            logger.info(
+                f"TimelineFeedBehavior[perform_action]: waiting for network idle"
+            )
             await self.tab.net_idle(global_wait=10)
         elif done:
             self._finished()

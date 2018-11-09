@@ -5,9 +5,8 @@ import logging
 from abc import ABCMeta, abstractmethod
 from asyncio import Task, AbstractEventLoop
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from aioredis import Redis
-import textwrap
 
+from aioredis import Redis
 from cripy import Client, connect
 from pyee import EventEmitter
 

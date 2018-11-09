@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import logging
-from typing import Optional, List, Dict, Tuple, Any, Union, ClassVar
+import ujson
 from asyncio import AbstractEventLoop
+from typing import Optional, List, Dict, Any, Union, ClassVar
+
 from aiohttp import ClientSession
 from pyee import EventEmitter
 from redis import Redis
-import ujson
+
 from .tabs import TAB_CLASSES, BaseAutoTab
 
 __all__ = ["BaseAutoBrowser", "DynamicBrowser"]
@@ -150,7 +152,7 @@ class DynamicBrowser(BaseAutoBrowser):
         self.base_ip_url = f"{self.api_host}{self.GET_BROWSER_INFO_URL}"
 
     async def init(self, reqid: Optional[str] = None) -> None:
-        logger.info('DynamicBrowser[init]: initializing')
+        logger.info("DynamicBrowser[init]: initializing")
         tab_datas = None
         ip = None
 
@@ -205,7 +207,9 @@ class DynamicBrowser(BaseAutoBrowser):
         :param reqid: The request id to retrieve the ip address for
         :return: The ip address associated with the request id if it exists
         """
-        logger.info(f"DynamicBrowser[get_ip_for_reqid]: reqid = {reqid}, autoid = {self.autoid}")
+        logger.info(
+            f"DynamicBrowser[get_ip_for_reqid]: reqid = {reqid}, autoid = {self.autoid}"
+        )
 
         async with ClientSession(json_serialize=ujson.dumps) as session:
             try:
@@ -220,7 +224,9 @@ class DynamicBrowser(BaseAutoBrowser):
         self
     ) -> Optional[Dict[str, Union[str, List[Dict[str, str]]]]]:
         reqid = await self.stage_new_browser(self.browser_id, self.cdata)
-        logger.info(f"DynamicBrowser[init_new_browser]: reqid = {reqid}, autoid = {self.autoid}")
+        logger.info(
+            f"DynamicBrowser[init_new_browser]: reqid = {reqid}, autoid = {self.autoid}"
+        )
 
         # wait for browser init
         async with ClientSession(json_serialize=ujson.dumps) as session:
@@ -233,7 +239,9 @@ class DynamicBrowser(BaseAutoBrowser):
                 try:
                     res = await response.json()  # type: Dict[str, str]
                 except Exception as e:
-                    logger.info(f"DynamicBrowser[init_new_browser]: Browser Init Failed {str(e)}")
+                    logger.info(
+                        f"DynamicBrowser[init_new_browser]: Browser Init Failed {str(e)}"
+                    )
                     return None
 
                 if "cmd_port" in res:

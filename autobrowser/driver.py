@@ -21,7 +21,7 @@ logger = logging.getLogger("autobrowser")
 
 @attr.dataclass(slots=True, cmp=False)
 class Driver(object):
-    loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
+    loop: AbstractEventLoop = attr.ib(default=None)
     browsers: Dict[str, DynamicBrowser] = attr.ib(init=False, factory=dict)
     redis: Redis = attr.ib(init=False, default=None)
     ae_channel: Channel = attr.ib(init=False, default=None)
@@ -36,6 +36,8 @@ class Driver(object):
         return channels[0]
 
     async def init(self) -> None:
+        if self.loop is None:
+            self.loop = asyncio.get_event_loop()
         self.redis = await aioredis.create_redis(
             "redis://redis", loop=self.loop, encoding="utf-8"
         )
@@ -45,9 +47,9 @@ class Driver(object):
         self.pubsub_task = self.loop.create_task(self.pubsub_loop())
 
     async def run(self) -> None:
-        logger.info('Driver.run')
+        logger.info("Driver.run")
         await self.init()
-        logger.info('Driver waiting for shutdown')
+        logger.info("Driver waiting for shutdown")
         await self.shutdown_sig_future
         self.pubsub_task.cancel()
         try:
@@ -100,7 +102,7 @@ class Driver(object):
 
 @attr.dataclass(slots=True, cmp=False)
 class SingleBrowserDriver(object):
-    loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
+    loop: AbstractEventLoop = attr.ib(default=None)
     redis: Redis = attr.ib(init=False, default=None)
     shutdown_sig_future: Future = attr.ib(init=False, default=None)
     browser: BaseAutoBrowser = attr.ib(init=False, default=None)
@@ -109,7 +111,9 @@ class SingleBrowserDriver(object):
         self.shutdown_sig_future.set_result(True)
 
     async def run(self) -> None:
-        logger.info('SingleBrowserDriver[run]: started')
+        if self.loop is None:
+            self.loop = asyncio.get_event_loop()
+        logger.info("SingleBrowserDriver[run]: started")
         redis_url = os.environ.get("REDIS_URL", "redis://localhost")
         print("REDIS", redis_url)
         self.redis = await aioredis.create_redis(
@@ -130,7 +134,7 @@ class SingleBrowserDriver(object):
         ip = socket.gethostbyname(os.environ.get("BROWSER_HOST"))
 
         await browser.init(ip=ip)
-        logger.info('SingleBrowserDriver[run]: waiting for shutdown')
+        logger.info("SingleBrowserDriver[run]: waiting for shutdown")
         await self.shutdown_sig_future
         await browser.shutdown_gracefully()
         self.redis.close()

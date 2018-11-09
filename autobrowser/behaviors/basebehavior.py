@@ -21,17 +21,17 @@ logger = logging.getLogger("autobrowser")
 
 @attr.dataclass(slots=True)
 class Behavior(ABC):
-    """A behavior represents an action that is to be performed in the page (tab).
+    """A behavior represents an action that is to be performed in the page (tab)
+    or specific frame within the page.
 
     This class defines the expected interface for all behaviors.
     Each behavior has an associated tab and configuration. If a behaviors configuration is not supplied
     then it is an empty dictionary, allowing subclasses to fill in information as necessary.
 
     Behavior lifecycle:
-      - init():
-        called
-    - run() -> done
-
+     - run() -> init(), action loop
+     - init() -> if (_has_resource): load_resources, if (pre_action_init) pre_action_init
+     - action loop -> while(not done): perform_action
     """
 
     tab: "BaseAutoTab" = attr.ib()
@@ -72,15 +72,18 @@ class Behavior(ABC):
         return self._has_resource
 
     def reset(self):
+        """Reset the behavior to its initial state"""
         self._did_init = False
         self._done = False
 
     def _finished(self):
+        """Sets the state of the behavior to done"""
         self.tab.pause_behaviors()
         self._done = True
 
     @abstractmethod
     async def perform_action(self) -> None:
+        """Perform the behaviors action in the page"""
         pass
 
     async def load_resources(self):
@@ -98,6 +101,11 @@ class Behavior(ABC):
         pass
 
     async def init(self) -> None:
+        """Initialize the behavior. If the behavior was previously initialized this is a no op.
+
+        Loads the behaviors resources if _has_resource is true.
+        Executes the behaviors pre-action init if _pre_init is true
+        """
         if self._did_init:
             return
         logger.info(
@@ -110,6 +118,12 @@ class Behavior(ABC):
         self._did_init = True
 
     def run_task(self, loop: Optional[AbstractEventLoop] = None) -> Task:
+        """Run the behavior as a task, if the behavior is already running as
+        a task the running behavior run task is returned.
+
+        :param loop: The event loop to task will be created using.
+        Defaults to asyncio.get_event_loop()
+        """
         if self._running_task is not None and not self._running_task.done():
             return self._running_task
         if loop is None:
@@ -118,6 +132,7 @@ class Behavior(ABC):
         return self._running_task
 
     async def run(self) -> None:
+        """Run the behavior"""
         await self.init()
         logger.info(f"{self._clz_name}[run]: running behavior")
         while not self.done:
@@ -125,6 +140,10 @@ class Behavior(ABC):
         logger.info(f"{self._clz_name}[run]: behavior done")
 
     def evaluate_in_page(self, js_string: str) -> Awaitable[Any]:
+        """Evaluate a string of JavaScript inside the page or frame.
+
+        :param js_string: The string of JavaScript to be evaluated
+        """
         if self.frame is not None:
             return self.frame.evaluate_expression(js_string, withCliAPI=True)
         return self.tab.evaluate_in_page(js_string)
