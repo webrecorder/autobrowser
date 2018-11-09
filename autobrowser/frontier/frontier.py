@@ -116,7 +116,7 @@ class RedisFrontier(object):
 
     async def init(self) -> None:
         """Initialize the frontier"""
-        self.crawl_depth = int(await self.redis.hget(self.info_key, self.CRAWL_DEPTH_FIELD))
+        self.crawl_depth = int(await self.redis.hget(self.info_key, self.CRAWL_DEPTH_FIELD) or 0)
         await self.scope.init()
 
     async def add(self, url: str, depth: int) -> None:

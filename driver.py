@@ -1,9 +1,10 @@
 import asyncio
 import logging
+import os
 
 import uvloop
 
-from autobrowser.driver import Driver
+from autobrowser.driver import Driver, SingleBrowserDriver
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -23,7 +24,12 @@ logger = logging.getLogger("autobrowser")
 
 
 async def run_driver():
-    await Driver(loop=asyncio.get_event_loop()).run()
+    if os.environ.get('BROWSER_HOST'):
+        cls = SingleBrowserDriver
+    else:
+        cls = Driver
+
+    await cls(loop=asyncio.get_event_loop()).run()
 
 
 if __name__ == "__main__":

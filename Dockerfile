@@ -10,6 +10,10 @@ COPY simplechrome /tmp/simplechrome
 RUN cd /tmp/chrome-remote-interface-py && python setup.py install
 RUN cd /tmp/simplechrome && python setup.py install
 
+WORKDIR /app
 
-WORKDIR /tmp
+ADD . /app
+
+CMD python -u /app/driver.py
+
 

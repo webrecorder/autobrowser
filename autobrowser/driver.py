@@ -2,15 +2,17 @@
 import asyncio
 import logging
 import signal
+import socket
 import ujson
 from asyncio import AbstractEventLoop, Task, Future, CancelledError
 from typing import Dict
 
 import aioredis
+import os
 import attr
 from aioredis import Redis, Channel
 
-from .basebrowser import BaseAutoBrowser
+from .basebrowser import BaseAutoBrowser, DynamicBrowser
 
 __all__ = ["Driver"]
 
@@ -21,7 +23,7 @@ logger = logging.getLogger("autobrowser")
 @attr.dataclass(slots=True, cmp=False)
 class Driver(object):
     loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
-    browsers: Dict[str, BaseAutoBrowser] = attr.ib(init=False, factory=dict)
+    browsers: Dict[str, DynamicBrowser] = attr.ib(init=False, factory=dict)
     redis: Redis = attr.ib(init=False, default=None)
     ae_channel: Channel = attr.ib(init=False, default=None)
     pubsub_task: Task = attr.ib(init=False, default=None)
@@ -71,7 +73,7 @@ class Driver(object):
         logger.debug("Start Automating Browser: " + reqid)
         browser = self.browsers.get(reqid)
         if not browser:
-            browser = BaseAutoBrowser(
+            browser = DynamicBrowser(
                 api_host="http://shepherd:9020",
                 autoid=reqid,
                 tab_class="BehaviorTab",
@@ -93,3 +95,40 @@ class Driver(object):
         await browser.close()
         del self.browsers[reqid]
         # browser.remove_listener('browser_removed', self.remove_browser)
+
+
+@attr.dataclass(slots=True, cmp=False)
+class SingleBrowserDriver(object):
+    loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
+    redis: Redis = attr.ib(init=False, default=None)
+    shutdown_sig_future: Future = attr.ib(init=False, default=None)
+    browser: BaseAutoBrowser = attr.ib(init=False, default=None)
+
+    def sigterm_handler(self) -> None:
+        self.shutdown_sig_future.set_result(True)
+
+    async def run(self) -> None:
+        redis_url = os.environ.get('REDIS_URL', 'redis://localhost')
+        print('REDIS', redis_url)
+        self.redis = await aioredis.create_redis(
+            redis_url,
+            loop=self.loop,
+            encoding='utf-8'
+        )
+        self.shutdown_sig_future = self.loop.create_future()
+        self.loop.add_signal_handler(signal.SIGTERM, self.sigterm_handler)
+
+        logger.debug('Connecting to Auto-Browser')
+
+        browser = BaseAutoBrowser(
+            autoid=os.environ.get('AUTO_ID'),
+            tab_class="CrawlerTab",
+            loop=self.loop,
+            redis=self.redis,
+        )
+
+        ip = socket.gethostbyname(os.environ.get('BROWSER_HOST'))
+
+        await browser.init(ip=ip)
+        await self.shutdown_sig_future
+

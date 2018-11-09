@@ -2,29 +2,29 @@ version: '2'
 services:
   driver:
     image: "autobrowserpy:latest"
-    volumes:
-      - './:/tmp'
-    command: python -u /tmp/driver.py
+    #volumes:
+    #  - './:/tmp'
+    command: python -u /app/driver.py
     depends_on:
       - redis
   server:
     image: "autobrowserpy:latest"
-    volumes:
-      - './:/tmp'
-    command: python -u /tmp/server.py
+    #volumes:
+    #  - './:/tmp'
+    command: python -u /app/server.py
     ports:
       - '9021:9021'
     depends_on:
       - redis
   pywb:
-    image: 'pwyb-local-dev:latest'
+    image: 'webrecorder/pywb:develop'
     working_dir: /tmp
     command: wayback --live --proxy live --proxy-with-auto-fetch
   redis:
     image: 'redis:3.2.4'
   shepherd:
     image: oldwebtoday/shepherd
-    command: uwsgi uwsgi.ini --mount /=/shepherd/main.py
+    #command: uwsgi uwsgi.ini --mount /=/shepherd/main.py
     environment:
       - 'REDIS_BROWSER_URL=redis://redis/0'
       - CLUSTER_NAME=scalar_shepherd
