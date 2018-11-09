@@ -85,7 +85,9 @@ class RedisFrontier(object):
                 f"RedisFrontier[wait_for_populated_q]: q still empty, waiting another {wait_time} seconds"
             )
             await asyncio.sleep(wait_time, loop=loop)
-        logger.info(f"RedisFrontier[wait_for_populated_q]: q populated")
+        logger.info(
+            f"RedisFrontier[wait_for_populated_q]: q populated with {await self.q_len()} URLs"
+        )
 
     def next_depth(self) -> int:
         """Returns the next depth by adding one to the depth of the currently crawled URLs depth"""
