@@ -1,10 +1,10 @@
 import asyncio
-from typing import Set, Tuple, List, Awaitable, ClassVar, Dict, Union
 import logging
+import ujson
+from typing import Set, Tuple, List, Awaitable, ClassVar, Dict, Union
 
 import attr
 from aioredis import Redis
-import ujson
 
 from .scope import Scope, RedisScope
 
