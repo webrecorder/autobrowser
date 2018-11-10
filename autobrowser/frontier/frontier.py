@@ -52,10 +52,14 @@ class Frontier(object):
         return frontier
 
 
+def to_redis_key(aid: str) -> str:
+    return f"a:{aid}"
+
+
 @attr.dataclass(slots=True)
 class RedisFrontier(object):
     redis: Redis = attr.ib(repr=False)
-    autoid: str = attr.ib(convert=lambda aid: f"a:{aid}")
+    autoid: str = attr.ib(convert=to_redis_key)
     scope: RedisScope = attr.ib(init=False)
     info_key: str = attr.ib(init=False, default=None)
     q_key: str = attr.ib(init=False, default=None)
@@ -85,8 +89,9 @@ class RedisFrontier(object):
                 f"RedisFrontier[wait_for_populated_q]: q still empty, waiting another {wait_time} seconds"
             )
             await asyncio.sleep(wait_time, loop=loop)
+        q_len = await self.q_len()
         logger.info(
-            f"RedisFrontier[wait_for_populated_q]: q populated with {await self.q_len()} URLs"
+            f"RedisFrontier[wait_for_populated_q]: q populated with {q_len} URLs"
         )
 
     def next_depth(self) -> int:
@@ -134,7 +139,8 @@ class RedisFrontier(object):
             logger.info(
                 f"RedisFrontier[next_url]: removing the previous URL {self.currently_crawling} from the pending set"
             )
-            await self.remove_from_pending(self.currently_crawling["url"])
+            curl: str = self.currently_crawling["url"]
+            await self.remove_from_pending(curl)
         self.currently_crawling = await self._pop_url()
         logger.info(
             f"RedisFrontier[next_url]: the next URL is {self.currently_crawling}"

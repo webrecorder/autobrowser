@@ -33,9 +33,9 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         **kwargs,
     ) -> None:
         if browser is not None:
-            loop = browser.loop
+            loop: AbstractEventLoop = browser.loop
         else:
-            loop = asyncio.get_event_loop()
+            loop: AbstractEventLoop = asyncio.get_event_loop()
         super().__init__(loop=loop)
         self.browser: "BaseAutoBrowser" = browser
         self.redis = redis
@@ -216,7 +216,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self.client.set_close_callback(lambda: self.emit("connection-closed"))
 
         self.client.Inspector.detached(self.devtools_reconnect)
-        self.client.Inspector.targetCrashed(lambda: self.emit("target-crashed"))
+        self.client.Inspector.targetCrashed(self._on_inspector_crashed)
 
         await asyncio.gather(
             self.client.Page.enable(),
@@ -246,6 +246,9 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         logger.info("BaseAutoTab[shutdown_gracefully]: shutting down")
         self._graceful_shutdown = True
         await self.close()
+
+    def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
+        self.emit("target-crashed")
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(autoid={self.autoid}, {self.tab_data})"

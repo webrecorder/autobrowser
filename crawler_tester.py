@@ -96,15 +96,20 @@ async def reset_redis(redis: Redis):
     await redis.delete(q_key, info_key, seen_key, scope_key)
     await redis.hset(info_key, "crawl_depth", 2)
     await redis.rpush(
-        q_key, ujson.dumps(dict(url="https://twitter.com/webrecorder_io", depth=0))
+        q_key,
+        ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),
+        ujson.dumps(dict(url="https://rhizome.org/", depth=0)),
+        ujson.dumps(dict(url="https://example.com/", depth=0)),
     )
-    await redis.sadd(seen_key, "https://twitter.com/webrecorder_io")
-    await redis.sadd(
-        scope_key,
-        ujson.dumps(
-            dict(surt=parse_url("https://twitter.com/").surt().decode("utf-8"))
-        ),
-    )
+    await redis.sadd(seen_key, "https://www.instagram.com/rhizomedotorg")
+    await redis.sadd(seen_key, "https://rhizome.org/")
+    await redis.sadd(seen_key, "https://example.com/")
+    # await redis.sadd(
+    #     scope_key,
+    #     ujson.dumps(
+    #         dict(surt=parse_url("https://twitter.com/").surt().decode("utf-8"))
+    #     ),
+    # )
 
 
 RESET_REDIS = True

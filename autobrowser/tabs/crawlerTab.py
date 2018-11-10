@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
-import asyncio
 import logging
-from asyncio import Task, CancelledError
+from asyncio import Task, CancelledError, TimeoutError
 from pathlib import Path
 from typing import List, Optional, Any, Union
-import os
+
 import aiofiles
+import os
 from async_timeout import timeout
 from simplechrome.errors import NavigationError
 from simplechrome.frame_manager import FrameManager, Frame
@@ -119,11 +118,14 @@ class CrawlerTab(BaseAutoTab):
             return True
         return False
 
-    async def crawl(self) -> None:
+    async def _report_initial_fstate(self) -> None:
+        frontier_state = "" if await self.frontier.exhausted() else "not"
         logger.info(
-            f"CrawlerTab[crawl]: crawl loop starting and the frontier is "
-            f"{'' if await self.frontier.exhausted() else 'not'} exhausted"
+            f"CrawlerTab[crawl]: crawl loop starting and the frontier is {frontier_state} exhausted"
         )
+
+    async def crawl(self) -> None:
+        await self._report_initial_fstate()
         # loop until frontier is exhausted
         while not await self.frontier.exhausted():
             if self._graceful_shutdown:
@@ -134,9 +136,11 @@ class CrawlerTab(BaseAutoTab):
             n_url = await self.frontier.next_url()
             logger.info(f"CrawlerTab[crawl]: navigating to {n_url}")
             was_error = await self.goto(n_url)
-            logger.info(
-                f"CrawlerTab[crawl]: navigated to {n_url} with {'an error' if was_error else 'no error'}"
-            )
+            if was_error:
+                error_m = "an error"
+            else:
+                error_m = "no error"
+            logger.info(f"CrawlerTab[crawl]: navigated to {n_url} with {error_m}")
             # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
             # after any redirects happen
             main_frame = self.frame_manager.mainFrame
@@ -150,7 +154,7 @@ class CrawlerTab(BaseAutoTab):
                 try:
                     async with timeout(self._max_behavior_time, loop=self.loop):
                         await behavior.run()
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.info("CrawlerTab[crawl]: timed behavior to")
                     pass
             out_links = await main_frame.evaluate_expression(self.outlink_expression)

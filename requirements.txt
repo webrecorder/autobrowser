@@ -1,4 +1,6 @@
 git+https://github.com/iipc/urlcanon.git
+git+https://github.com/webrecorder/chrome-remote-interface-py.git#egg=cripy
+git+https://github.com/webrecorder/simplechrome.git#egg=simplechrome
 aioredis
 async-timeout
 aiohttp

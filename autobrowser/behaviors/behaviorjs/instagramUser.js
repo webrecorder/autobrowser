@@ -152,8 +152,12 @@
    * @param {HTMLElement | Element | Node} elem
    * @return {Object}
    */
-  function getInternalRootOnElem(elem) {
-    return elem[reactProps.internalRoot];
+  function getReactRootContainer(elem) {
+    const hostContainer = elem[reactProps.rootContainer];
+    if (hostContainer) {
+      return hostContainer[reactProps.internalRoot];
+    }
+    throw new Error('cant get internal root on host contianer');
   }
 
   /**
@@ -387,7 +391,7 @@
       /**
        * @type {Object}
        */
-      this.internalRoot = getInternalRootOnElem(this.reactRoot);
+      this.internalRoot = getReactRootContainer(this.reactRoot);
       this.profilePage = window._sharedData.entry_data.ProfilePage[0];
       this.userId = this.profilePage.graphql.user.id;
       this.userName = this.profilePage.graphql.user.username;
