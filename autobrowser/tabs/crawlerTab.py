@@ -51,6 +51,7 @@ class CrawlerTab(BaseAutoTab):
             )
         #: The maximum amount of time the crawler should run behaviors for
         self._max_behavior_time: int = int(os.environ.get("BEHAVIOR_RUN_TIME", 60))
+        self._navigation_timeout: int = int(os.environ.get("NAV_TO", 30))
 
     @classmethod
     def create(cls, *args, **kwargs) -> "CrawlerTab":
@@ -110,7 +111,9 @@ class CrawlerTab(BaseAutoTab):
         :return: True or False indicating if navigation encountered an error
         """
         try:
-            await self.main_frame.goto(url, waitUntil=waitUntil, **kwargs)
+            await self.main_frame.goto(
+                url, waitUntil=waitUntil, timeout=self._navigation_timeout, **kwargs
+            )
         except NavigationError as ne:
             logger.exception(
                 f"CrawlerTab[goto]: navigation error for {url}, error msg = {ne}"
@@ -123,6 +126,23 @@ class CrawlerTab(BaseAutoTab):
         logger.info(
             f"CrawlerTab[crawl]: crawl loop starting and the frontier is {frontier_state} exhausted"
         )
+
+    async def collect_outlinks(self):
+        try:
+            out_links = await self.main_frame.evaluate_expression(
+                self.outlink_expression
+            )
+        except Exception as e:
+            logger.exception(
+                f"CrawlerTab[collect_outlinks]: mainFrame.evaluate_expression threw an error falling back to evaluate_in_page. {e}"
+            )
+            out_links = await self.evaluate_in_page(self.outlink_expression)
+        logger.info(f"CrawlerTab[crawl]: collected outlinks")
+        if out_links is not None:
+            await self.frontier.add_all(out_links)
+
+    def main_frame_getter(self) -> Frame:
+        return self.frame_manager.mainFrame
 
     async def crawl(self) -> None:
         await self._report_initial_fstate()
@@ -143,9 +163,8 @@ class CrawlerTab(BaseAutoTab):
             logger.info(f"CrawlerTab[crawl]: navigated to {n_url} with {error_m}")
             # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
             # after any redirects happen
-            main_frame = self.frame_manager.mainFrame
             behavior = BehaviorManager.behavior_for_url(
-                main_frame.url, self, frame=main_frame
+                self.main_frame.url, self, frame=self.main_frame_getter
             )
             logger.info(f"CrawlerTab[crawl]: running behavior {behavior}")
             # we have a behavior to be run so run it
@@ -157,9 +176,7 @@ class CrawlerTab(BaseAutoTab):
                 except TimeoutError:
                     logger.info("CrawlerTab[crawl]: timed behavior to")
                     pass
-            out_links = await main_frame.evaluate_expression(self.outlink_expression)
-            logger.info(f"CrawlerTab[crawl]: collected outlinks")
-            await self.frontier.add_all(out_links)
+            await self.collect_outlinks()
             if self._graceful_shutdown:
                 logger.info(
                     f"CrawlerTab[crawl]: got graceful_shutdown after crawling the current url"

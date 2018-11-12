@@ -5,7 +5,7 @@ import traceback
 import ujson
 from asyncio import AbstractEventLoop
 from contextlib import asynccontextmanager
-from typing import Dict
+from typing import Dict, List
 
 import aioredis
 import uvloop
@@ -21,7 +21,7 @@ try:
     from asyncio.runners import run as aiorun
 except ImportError:
 
-    def aiorun(coro):
+    def aiorun(coro, debug=False) -> None:
         loop = asyncio.get_event_loop()
         try:
             return loop.run_until_complete(coro)
@@ -33,25 +33,33 @@ asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 CHROME = "google-chrome-unstable"  # aka chrome canary
 
+MAYBE_ADDITIONAL_ARGS = [
+    "--disable-gpu-process-crash-limit",  # Disable the limit on the number of times the GPU process may be restarted. For tests and platforms where software fallback is disabled
+    "--disable-backing-store-limit",
+    "--aggressive",
+    "--aggressive-cache-discard",
+    "--aggressive-tab-discard",
+    "--javascript-harmony",
+]
+
+# https://cs.chromium.org/chromium/src/chrome/browser/flag_descriptions.cc?q=kAggressiveThreshold&dr=CSs&l=3491
 DEFAULT_ARGS = [
-    CHROME,
     "--remote-debugging-port=9222",
     "--disable-background-networking",
     "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-ipc-flooding-protection",
     "--disable-client-side-phishing-detection",
     "--disable-default-apps",
     "--disable-extensions",
-    "--disable-backgrounding-occluded-windows",
-    "--disable-ipc-flooding-protection",
     "--disable-popup-blocking",
     "--disable-hang-monitor",
     "--disable-prompt-on-repost",
     "--disable-sync",
     "--disable-translate",
     "--disable-domain-reliability",
-    "--disable-renderer-backgrounding",
     "--disable-infobars",
-    "--disable-translate",
     "--disable-features=site-per-process",
     "--disable-breakpad",
     "--metrics-recording-only",
@@ -68,7 +76,10 @@ DEFAULT_ARGS = [
 @asynccontextmanager
 async def launch_chrome(loop: AbstractEventLoop) -> Dict[str, str]:
     proc = await asyncio.create_subprocess_exec(
-        *DEFAULT_ARGS, stderr=asyncio.subprocess.PIPE, loop=loop
+        CHROME,
+        *DEFAULT_ARGS,
+        stderr=asyncio.subprocess.PIPE,
+        loop=loop,
     )
     while True:
         line = await proc.stderr.readline()
@@ -97,13 +108,13 @@ async def reset_redis(redis: Redis):
     await redis.hset(info_key, "crawl_depth", 2)
     await redis.rpush(
         q_key,
-        ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),
-        ujson.dumps(dict(url="https://rhizome.org/", depth=0)),
-        ujson.dumps(dict(url="https://example.com/", depth=0)),
+        ujson.dumps(dict(url="https://www.facebook.com/Smithsonian/", depth=0)),
+        # ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),
+        # ujson.dumps(dict(url="https://rhizome.org/", depth=0)),
     )
-    await redis.sadd(seen_key, "https://www.instagram.com/rhizomedotorg")
-    await redis.sadd(seen_key, "https://rhizome.org/")
-    await redis.sadd(seen_key, "https://example.com/")
+    await redis.sadd(seen_key, "https://www.facebook.com/Smithsonian/")
+    # await redis.sadd(seen_key, "https://www.instagram.com/rhizomedotorg")
+    # await redis.sadd(seen_key, "https://rhizome.org/")
     # await redis.sadd(
     #     scope_key,
     #     ujson.dumps(
@@ -122,13 +133,14 @@ logger.setLevel(logging.DEBUG)
 async def crawl_baby_crawl() -> None:
     loop: AbstractEventLoop = asyncio.get_event_loop()
     async with launch_chrome(loop) as tab_info:
-        redis: Redis = await aioredis.create_redis(
-            "redis://localhost", loop=loop, encoding="utf-8"
-        )
-        if RESET_REDIS:
-            await reset_redis(redis)
-        crawl_tab = None
+        crawl_tab: CrawlerTab = None
+        redis: Redis = None
         try:
+            redis: Redis = await aioredis.create_redis(
+                "redis://localhost", loop=loop, encoding="utf-8"
+            )
+            if RESET_REDIS:
+                await reset_redis(redis)
             crawl_tab = CrawlerTab.create(None, tab_info, dummy_auto_id, redis=redis)
             await crawl_tab.init()
             await crawl_tab.crawl_loop
@@ -137,8 +149,9 @@ async def crawl_baby_crawl() -> None:
         finally:
             if crawl_tab:
                 await crawl_tab.close()
-            redis.close()
-            await redis.wait_closed()
+            if redis:
+                redis.close()
+                await redis.wait_closed()
 
 
 #

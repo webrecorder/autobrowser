@@ -501,4 +501,4 @@
     const next = await $WRTweetIterator$.next();
     return next.done;
   };
-})($x, false);
+})($x, true);

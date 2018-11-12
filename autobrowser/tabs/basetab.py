@@ -156,7 +156,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
     async def evaluate_in_page(
         self, js_string: str, contextId: Optional[Any] = None
-    ) -> Dict:
+    ) -> Any:
         """Evaluates the supplied string of JavaScript in the tab
 
         :param js_string: The string of JavaScript to be evaluated
@@ -249,6 +249,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
     def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         self.emit("target-crashed")
+        logger.critical(f'Target Crashed {args[0]}')
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(autoid={self.autoid}, {self.tab_data})"

@@ -319,4 +319,4 @@
     const next = await $WRTLIterator$.next();
     return next.done;
   };
-})($x, false);
+})($x, true);

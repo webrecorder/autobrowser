@@ -258,4 +258,4 @@
     const next = await $WRNFIterator$.next();
     return next.done;
   };
-})($x, false);
+})($x, true);

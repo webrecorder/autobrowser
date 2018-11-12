@@ -26,10 +26,10 @@ class Driver(object):
     redis: Redis = attr.ib(init=False, default=None)
     ae_channel: Channel = attr.ib(init=False, default=None)
     pubsub_task: Task = attr.ib(init=False, default=None)
-    shutdown_sig_future: Future = attr.ib(init=False, default=None)
+    shutdown_future: Future = attr.ib(init=False, default=None)
 
     def sigterm_handler(self) -> None:
-        self.shutdown_sig_future.set_result(True)
+        self.shutdown_future.set_result(True)
 
     async def get_auto_event_channel(self) -> Channel:
         channels = await self.redis.subscribe("auto-event")
@@ -42,7 +42,7 @@ class Driver(object):
             "redis://redis", loop=self.loop, encoding="utf-8"
         )
         self.ae_channel = await self.get_auto_event_channel()
-        self.shutdown_sig_future = self.loop.create_future()
+        self.shutdown_future = self.loop.create_future()
         self.loop.add_signal_handler(signal.SIGTERM, self.sigterm_handler)
         self.pubsub_task = self.loop.create_task(self.pubsub_loop())
 
@@ -50,7 +50,7 @@ class Driver(object):
         logger.info("Driver.run")
         await self.init()
         logger.info("Driver waiting for shutdown")
-        await self.shutdown_sig_future
+        await self.shutdown_future
         self.pubsub_task.cancel()
         try:
             await self.pubsub_task
@@ -104,11 +104,12 @@ class Driver(object):
 class SingleBrowserDriver(object):
     loop: AbstractEventLoop = attr.ib(default=None)
     redis: Redis = attr.ib(init=False, default=None)
-    shutdown_sig_future: Future = attr.ib(init=False, default=None)
+    shutdown_future: Future = attr.ib(init=False, default=None)
     browser: BaseAutoBrowser = attr.ib(init=False, default=None)
 
-    def sigterm_handler(self) -> None:
-        self.shutdown_sig_future.set_result(True)
+    def shutdown_handler(self) -> None:
+        if not self.shutdown_future.done():
+            self.shutdown_future.set_result(True)
 
     async def run(self) -> None:
         if self.loop is None:
@@ -119,8 +120,8 @@ class SingleBrowserDriver(object):
         self.redis = await aioredis.create_redis(
             redis_url, loop=self.loop, encoding="utf-8"
         )
-        self.shutdown_sig_future = self.loop.create_future()
-        self.loop.add_signal_handler(signal.SIGTERM, self.sigterm_handler)
+        self.shutdown_future = self.loop.create_future()
+        self.loop.add_signal_handler(signal.SIGTERM, self.shutdown_handler)
 
         logger.debug("SingleBrowserDriver[run]: connecting to Auto-Browser")
 
@@ -129,13 +130,14 @@ class SingleBrowserDriver(object):
             tab_class="CrawlerTab",
             loop=self.loop,
             redis=self.redis,
+            shutdown_cb=self.shutdown_handler
         )
 
         ip = socket.gethostbyname(os.environ.get("BROWSER_HOST"))
 
         await browser.init(ip=ip)
         logger.info("SingleBrowserDriver[run]: waiting for shutdown")
-        await self.shutdown_sig_future
+        await self.shutdown_future
         await browser.shutdown_gracefully()
         self.redis.close()
         await self.redis.wait_closed()

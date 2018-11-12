@@ -3,7 +3,7 @@ import asyncio
 import logging
 import ujson
 from asyncio import AbstractEventLoop
-from typing import Optional, List, Dict, Any, Union, ClassVar
+from typing import Optional, List, Dict, Any, Union, ClassVar, Callable
 
 from aiohttp import ClientSession
 from pyee import EventEmitter
@@ -37,6 +37,7 @@ class BaseAutoBrowser(EventEmitter):
         tab_opts=None,
         loop: Optional[AbstractEventLoop] = None,
         redis: Optional[Redis] = None,
+        shutdown_cb: Optional[Callable[[], None]] = None,
     ) -> None:
         super().__init__(loop=loop if loop is not None else asyncio.get_event_loop())
         self.browser_id = browser_id
@@ -50,6 +51,7 @@ class BaseAutoBrowser(EventEmitter):
         self.tab_opts = tab_opts if tab_opts is not None else {}
         self.running = False
         self.redis = redis
+        self.shutdown_cb = shutdown_cb
 
     @property
     def loop(self) -> AbstractEventLoop:

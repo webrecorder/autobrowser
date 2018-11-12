@@ -280,4 +280,4 @@
     const results = await $WRIterator$.next();
     return { done: results.done, wait: results.value };
   };
-})($x, false);
+})($x, true);

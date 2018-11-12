@@ -63,7 +63,11 @@ class AutoScrollBehavior(JSBasedBehavior):
     """
 
     async def perform_action(self) -> None:
-        await self.evaluate_in_page(self._resource)
+        try:
+            await self.evaluate_in_page(self._resource)
+        except Exception as e:
+            logger.exception(f'AutoScrollBehavior[perform_action]: got an exception {e}')
+            pass
         logger.info(f"AutoScrollBehavior[perform_action]: waiting for network_idle")
         await self.tab.net_idle(global_wait=20)
         logger.info(f"AutoScrollBehavior[perform_action]: network_idle")

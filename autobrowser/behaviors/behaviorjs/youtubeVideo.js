@@ -500,4 +500,4 @@
   };
 
   // playVideoAndLoadComments().then(() => console.log('done'));
-})($x, false);
+})($x, true);

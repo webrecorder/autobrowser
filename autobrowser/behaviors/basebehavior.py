@@ -4,7 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from asyncio import Task, AbstractEventLoop
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, ClassVar, Any, Awaitable
+from typing import TYPE_CHECKING, Dict, Optional, ClassVar, Any, Awaitable, Callable, Union
 
 import aiofiles
 import attr
@@ -36,7 +36,7 @@ class Behavior(ABC):
 
     tab: "BaseAutoTab" = attr.ib()
     conf: Dict = attr.ib(factory=dict)
-    frame: Optional[Frame] = attr.ib(default=None)
+    frame: Optional[Union[Frame, Callable[[], Frame]]] = attr.ib(default=None)
     _has_resource: bool = attr.ib(default=False, init=False)
     _pre_init: bool = attr.ib(default=False, init=False)
     _done: bool = attr.ib(default=False, init=False)
@@ -145,7 +145,11 @@ class Behavior(ABC):
         :param js_string: The string of JavaScript to be evaluated
         """
         if self.frame is not None:
-            return self.frame.evaluate_expression(js_string, withCliAPI=True)
+            if callable(self.frame):
+                frame = self.frame()
+            else:
+                frame = self.frame
+            return frame.evaluate_expression(js_string, withCliAPI=True)
         return self.tab.evaluate_in_page(js_string)
 
     def __await__(self):
