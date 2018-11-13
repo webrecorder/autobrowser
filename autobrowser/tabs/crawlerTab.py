@@ -9,7 +9,7 @@ from async_timeout import timeout
 from simplechrome.errors import NavigationError
 from simplechrome.frame_manager import FrameManager, Frame
 
-from autobrowser.behaviors.behavior_manager import BehaviorManager
+from autobrowser.behaviors import BehaviorManager, Behavior
 from autobrowser.frontier import Frontier, RedisFrontier
 from .basetab import BaseAutoTab
 
@@ -170,12 +170,16 @@ class CrawlerTab(BaseAutoTab):
             # we have a behavior to be run so run it
             if behavior is not None:
                 # run the behavior in a timed fashion (async_timeout will cancel the corutine if max time is reached)
-                try:
-                    async with timeout(self._max_behavior_time, loop=self.loop):
-                        await behavior.run()
-                except TimeoutError:
-                    logger.info("CrawlerTab[crawl]: timed behavior to")
-                    pass
+                if self._max_behavior_time != -1:
+                    try:
+                        async with timeout(self._max_behavior_time, loop=self.loop):
+                            await behavior.run()
+                    except TimeoutError:
+                        logger.info("CrawlerTab[crawl]: timed behavior to")
+                        pass
+                else:
+                    await behavior.run()
+
             await self.collect_outlinks()
             if self._graceful_shutdown:
                 logger.info(

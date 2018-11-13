@@ -41,6 +41,13 @@ matching:
       resouce: 'soundCloudEmbed.js'
     match:
       regex: '^https://w.soundcloud.com/player/?visual=true&url=.+'
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedBehavior'
+    init:
+      resource: 'youtubeVideo.js'
+    match:
+      regex: '^https://(www.)?youtube.com/watch[?]v=.+'
 default:
   init:
     resource: 'autoscroll.js'
