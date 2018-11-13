@@ -239,34 +239,10 @@
     addOutLinks(queryFrom.querySelectorAll(outlinkSelector));
   }
 
-  addBehaviorStyle(
-    '.wr-debug-visited {border: 6px solid #3232F1;} .wr-debug-visited-thread-reply {border: 6px solid green;} .wr-debug-visited-overlay {border: 6px solid pink;} .wr-debug-click {border: 6px solid red;}'
-  );
-
-  /**
-   * An abstraction around interacting with HTML of a tweet in a timeline.
-   *
-   *  Selector, element breakdown:
-   *    div.tweet.js-stream-tweet... (_container)
-   *     |- div.content (aTweet, _tweet)
-   *         |- div.stream-item-footer (_footer)
-   *             |- div.ProfileTweet-action--reply (_tRplyAct)
-   *                 |- button[data-modal="ProfileTweet-reply"] (_rplyButton)
-   *                     |- span.ProfileTweet-actionCount--isZero (IFF no replied)
-   *    |- div.self-thread-tweet-cta
-   *        |- a.js-nav.show-thread-link
-   */
-  const tweetFooterSelector = 'div.stream-item-footer';
-  const replyActionSelector = 'div.ProfileTweet-action--reply';
-  const noReplySpanSelector = 'span.ProfileTweet-actionCount--isZero';
-  const replyBtnSelector = 'button[data-modal="ProfileTweet-reply"]';
-  const closeFullTweetSelector = 'div.PermalinkProfile-dismiss > span';
-  const threadSelector = 'a.js-nav.show-thread-link';
-
   /**
    * @desc Xpath query used to traverse each tweet within a timeline.
    *
-   * Because {@link timelineIterator} marks each tweet as visited by adding the
+   * During visiting tweets, the tweets are marked as visited by adding the
    * sentinel`$wrvisited$` to the classList of a tweet seen during timeline traversal,
    * normal usage of a CSS selector and `document.querySelectorAll` is impossible
    * unless significant effort is made in order to ensure each tweet is seen only
@@ -293,7 +269,7 @@
    * @type {string}
    */
   const tweetXpath =
-    '//div[starts-with(@class,"tweet js-stream-tweet")]/div[@class="content"]';
+    '//div[starts-with(@class,"tweet js-stream-tweet")]/div[@class="content" and not(contains(@class, "wrvistited"))]';
 
   /**
    * @desc A variation of {@link tweetXpath} in that it is further constrained
@@ -302,6 +278,30 @@
    * @type {string}
    */
   const overlayTweetXpath = `//div[@id="permalink-overlay"]${tweetXpath}`;
+
+  addBehaviorStyle(
+    '.wr-debug-visited {border: 6px solid #3232F1;} .wr-debug-visited-thread-reply {border: 6px solid green;} .wr-debug-visited-overlay {border: 6px solid pink;} .wr-debug-click {border: 6px solid red;}'
+  );
+
+  /**
+   * An abstraction around interacting with HTML of a tweet in a timeline.
+   *
+   *  Selector, element breakdown:
+   *    div.tweet.js-stream-tweet... (_container)
+   *     |- div.content (aTweet, _tweet)
+   *         |- div.stream-item-footer (_footer)
+   *             |- div.ProfileTweet-action--reply (_tRplyAct)
+   *                 |- button[data-modal="ProfileTweet-reply"] (_rplyButton)
+   *                     |- span.ProfileTweet-actionCount--isZero (IFF no replied)
+   *    |- div.self-thread-tweet-cta
+   *        |- a.js-nav.show-thread-link
+   */
+  const tweetFooterSelector = 'div.stream-item-footer';
+  const replyActionSelector = 'div.ProfileTweet-action--reply';
+  const noReplySpanSelector = 'span.ProfileTweet-actionCount--isZero';
+  const replyBtnSelector = 'button[data-modal="ProfileTweet-reply"]';
+  const closeFullTweetSelector = 'div.PermalinkProfile-dismiss > span';
+  const threadSelector = 'a.js-nav.show-thread-link';
 
   class Tweet {
     /**
@@ -339,6 +339,20 @@
       this._baseURI = baseURI;
     }
 
+    hasVideo() {
+      const videoContainer = this.tweet.querySelector(
+        'div.AdaptiveMedia-videoContainer'
+      );
+      if (videoContainer != null) {
+        const video = videoContainer.querySelector('video');
+        if (video) {
+          video.play();
+        }
+        return true;
+      }
+      return false;
+    }
+
     tweetId() {
       return this.dataset.tweetId;
     }
@@ -361,7 +375,7 @@
 
     /**
      * @desc Clicks (views) the currently visited tweet
-     * @return {AsyncIterator<HTMLElement>}
+     * @return {AsyncIterableIterator<boolean>}
      */
     async *viewRepliesOrThread() {
       await this.openFullTweet();
@@ -369,9 +383,12 @@
       await this.closeFullTweetOverlay();
     }
 
+    /**
+     * @return {AsyncIterableIterator<boolean>}
+     */
     async *viewRegularTweet() {
       await this.openFullTweet();
-      yield this.fullTweetOverlay;
+      yield false;
       await this.closeFullTweetOverlay();
     }
 
@@ -393,6 +410,9 @@
       });
     }
 
+    /**
+     * @return {AsyncIterableIterator<boolean>}
+     */
     async *visitThreadReplyTweets() {
       collectOutlinksFrom(this.fullTweetOverlay);
       let snapShot = xpathSnapShot(overlayTweetXpath, this.fullTweetOverlay);
@@ -408,8 +428,8 @@
           if (debug) {
             aTweet.classList.add('wr-debug-visited-thread-reply');
           }
-          await scrollIntoViewWithDelay(aTweet, 500);
-          yield aTweet;
+          await scrollIntoViewWithDelay(aTweet);
+          yield false;
           i += 1;
         }
         snapShot = xpathSnapShot(overlayTweetXpath, this.fullTweetOverlay);
@@ -465,7 +485,7 @@
    *
    * @param {function(string,): Array<HTMLElement>} xpathQuerySelector
    * @param {string} baseURI - The timelines documents baseURI
-   * @return {AsyncIterator<HTMLElement>}
+   * @return {AsyncIterator<boolean>}
    */
   async function* timelineIterator(xpathQuerySelector, baseURI) {
     let tweets = xpathQuerySelector(tweetXpath);
@@ -478,7 +498,9 @@
         }
         await scrollIntoViewWithDelay(aTweet.tweet, 500);
         collectOutlinksFrom(aTweet.tweet);
-        yield aTweet.tweet;
+        if (aTweet.hasVideo()) {
+          yield true;
+        }
         if (aTweet.hasRepliedOrInThread()) {
           yield* aTweet.viewRepliesOrThread();
         } else {
@@ -499,6 +521,6 @@
   );
   window.$WRIteratorHandler$ = async function() {
     const next = await $WRTweetIterator$.next();
-    return next.done;
+    return { done: next.done, wait: !!next.value };
   };
 })($x, true);

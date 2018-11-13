@@ -9,7 +9,7 @@ from async_timeout import timeout
 from simplechrome.errors import NavigationError
 from simplechrome.frame_manager import FrameManager, Frame
 
-from autobrowser.behaviors import BehaviorManager, Behavior
+from autobrowser.behaviors import BehaviorManager
 from autobrowser.frontier import Frontier, RedisFrontier
 from .basetab import BaseAutoTab
 
@@ -164,7 +164,7 @@ class CrawlerTab(BaseAutoTab):
             # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
             # after any redirects happen
             behavior = BehaviorManager.behavior_for_url(
-                self.main_frame.url, self, frame=self.main_frame_getter
+                self.main_frame.url, self
             )
             logger.info(f"CrawlerTab[crawl]: running behavior {behavior}")
             # we have a behavior to be run so run it

@@ -800,7 +800,6 @@
     const postRowContainer = reactGarbageDiv.firstElementChild;
     let posts;
     let post;
-    let numPosts;
     let i = 0;
     let row = postRowContainer.firstElementChild;
     let numLoadedRows = postRowContainer.children.length;
@@ -810,7 +809,7 @@
       }
       await scrollIntoViewWithDelay(row);
       posts = row.childNodes;
-      numPosts = posts.length;
+      let numPosts = posts.length;
       // for each post in the row
       for (i = 0; i < numPosts; ++i) {
         post = posts[i];

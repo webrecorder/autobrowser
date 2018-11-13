@@ -28,7 +28,6 @@ class TimelineFeedNetIdle(JSBasedBehavior):
         # indicate we are not done
         # get next timeline item
         next_state = await self.evaluate_in_page(self._wr_action_iter_next)
-
         # if we are done then tell the tab we are done
         done = next_state.get("done")
         if not done and next_state.get("wait"):

@@ -1,11 +1,25 @@
 matching:
   - handler:
       module: 'timeline_feeds'
-      class: 'TimelineFeedBehavior'
+      class: 'TimelineFeedNetIdle'
     init:
       resource: 'twitterTimeline.js'
     match:
       regex: "^https://(www.)?twitter.com/[^/]+$"
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedNetIdle'
+    init:
+      resource: 'twitterHashTags.js'
+    match:
+      regex: "^https://(www.)?twitter.com/hashtag/[^?]+[?](?:vertical=default&)?src=hash$"
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedNetIdle'
+    init:
+      resource: 'twitterHashTags.js'
+    match:
+      regex: "^https://(www.)?twitter.com/hashtag/[^?]+[?]f=tweets.+$"
   - handler:
       module: 'timeline_feeds'
       class: 'TimelineFeedBehavior'

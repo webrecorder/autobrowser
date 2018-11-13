@@ -108,11 +108,11 @@ async def reset_redis(redis: Redis):
     await redis.hset(info_key, "crawl_depth", 2)
     await redis.rpush(
         q_key,
-        ujson.dumps(dict(url="https://www.youtube.com/watch?v=Oi0sVRZ_49c", depth=0)),
+        ujson.dumps(dict(url="https://twitter.com/webrecorder_io", depth=0)),
         # ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),
         # ujson.dumps(dict(url="https://rhizome.org/", depth=0)),
     )
-    await redis.sadd(seen_key, "https://www.youtube.com/watch?v=Oi0sVRZ_49c")
+    await redis.sadd(seen_key, "https://twitter.com/webrecorder_io")
     # await redis.sadd(seen_key, "https://www.instagram.com/rhizomedotorg")
     # await redis.sadd(seen_key, "https://rhizome.org/")
     # await redis.sadd(
