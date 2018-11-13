@@ -800,6 +800,7 @@
     const postRowContainer = reactGarbageDiv.firstElementChild;
     let posts;
     let post;
+    let numPosts;
     let i = 0;
     let row = postRowContainer.firstElementChild;
     let numLoadedRows = postRowContainer.children.length;
