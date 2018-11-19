@@ -132,7 +132,6 @@ class SingleBrowserDriver(object):
             redis=self.redis,
             shutdown_cb=self.shutdown_handler
         )
-
         ip = socket.gethostbyname(os.environ.get("BROWSER_HOST"))
 
         await browser.init(ip=ip)

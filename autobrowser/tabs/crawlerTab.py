@@ -37,6 +37,7 @@ class CrawlerTab(BaseAutoTab):
         self.href_fn: str = "function () { return this.href; }"
         #: The variable name for the outlinks discovered by running the behavior
         self.outlink_expression: str = "window.$wbOutlinks$"
+        self.clear_outlinks: str = "window.$wbOutlinkSet$.clear()"
         #: The frame manager for the page
         self.frame_manager: FrameManager = None
         #: The crawling main loop
@@ -133,13 +134,21 @@ class CrawlerTab(BaseAutoTab):
                 self.outlink_expression
             )
         except Exception as e:
-            logger.exception(
+            logger.error(
                 f"CrawlerTab[collect_outlinks]: mainFrame.evaluate_expression threw an error falling back to evaluate_in_page. {e}"
             )
             out_links = await self.evaluate_in_page(self.outlink_expression)
         logger.info(f"CrawlerTab[crawl]: collected outlinks")
         if out_links is not None:
-            await self.frontier.add_all(out_links)
+            try:
+                await self.frontier.add_all(out_links)
+            except Exception as e:
+                logger.error(f"CrawlerTab[collect_outlinks]: frontier add_all threw an exception {e}")
+
+        try:
+            await self.evaluate_in_page(self.clear_outlinks)
+        except Exception as e:
+            logger.error(f"CrawlerTab[collect_outlinks]: evaluating clear_outlinks threw an exception {e}")
 
     def main_frame_getter(self) -> Frame:
         return self.frame_manager.mainFrame
@@ -166,6 +175,7 @@ class CrawlerTab(BaseAutoTab):
             behavior = BehaviorManager.behavior_for_url(
                 self.main_frame.url, self
             )
+            behavior.set_outlink_collection_fn(self.collect_outlinks)
             logger.info(f"CrawlerTab[crawl]: running behavior {behavior}")
             # we have a behavior to be run so run it
             if behavior is not None:
@@ -178,15 +188,21 @@ class CrawlerTab(BaseAutoTab):
                         logger.info("CrawlerTab[crawl]: timed behavior to")
                         pass
                 else:
-                    await behavior.run()
+                    try:
+                        await behavior.run()
+                    except Exception as e:
+                        logger.error(
+                            f"CrawlerTab[crawl]: behavior threw an error {e}"
+                        )
 
-            await self.collect_outlinks()
             if self._graceful_shutdown:
                 logger.info(
                     f"CrawlerTab[crawl]: got graceful_shutdown after crawling the current url"
                 )
                 break
         logger.info("CrawlerTab[crawl]: crawl loop stopped")
+        if not self._graceful_shutdown:
+            self.emit('crawl-done')
 
     async def manual_collect_outlinks(self):
         await self.client.DOM.enable()

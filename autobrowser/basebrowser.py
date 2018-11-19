@@ -47,6 +47,7 @@ class BaseAutoBrowser(EventEmitter):
         self.tabs: List[BaseAutoTab] = []
         self.num_tabs = num_tabs
         self.pubsub = pubsub
+        self._using_tab: str = tab_class
         self.tab_class = TAB_CLASSES[tab_class]
         self.tab_opts = tab_opts if tab_opts is not None else {}
         self.running = False

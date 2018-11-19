@@ -62,6 +62,13 @@ matching:
       resource: 'youtubeVideo.js'
     match:
       regex: '^https://(www.)?youtube.com/watch[?]v=.+'
+  - handler:
+      module: 'timeline_feeds'
+      class: 'TimelineFeedBehavior'
+    init:
+        resource: 'slideShare.js'
+    match:
+        regex: '^https://(www.)?slideshare.net/[a-zA-Z]+[?].+'
 default:
   init:
     resource: 'autoscroll.js'

@@ -137,6 +137,16 @@
   }
 
   /**
+   * @param {string} eid
+   * @param {?Document} [context]
+   * @returns {?HTMLElement}
+   */
+  function id(eid, context) {
+    if (context != null) return context.getElementById(eid);
+    return document.getElementById(eid);
+  }
+
+  /**
    * @desc Retrieves the property of an object, or item in array at index, based
    * on the supplied path.
    * @example
@@ -265,7 +275,7 @@
     const numSlides = getNumSlides(doc, slideSelector);
     let i = 1;
     for (; i < numSlides; ++i) {
-      clickInContext(id(selectors.nextSlide, doc), win);
+      await clickInContextWithDelay(id(selectors.nextSlide, doc), win);
     }
     await clickInContextWithDelay(id(selectors.nextSlide, doc), win);
   }
