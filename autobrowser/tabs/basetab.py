@@ -11,6 +11,7 @@ from cripy import Client, connect
 from pyee import EventEmitter
 
 from autobrowser.behaviors.basebehavior import Behavior
+from autobrowser.util import ShutdownCondition
 from autobrowser.util.netidle import monitor
 
 if TYPE_CHECKING:
@@ -30,6 +31,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         tab_data: Dict[str, str],
         autoid: str,
         redis: Optional[Redis] = None,
+        sd_condition: Optional[ShutdownCondition] = None,
         **kwargs,
     ) -> None:
         if browser is not None:
@@ -41,20 +43,23 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self.redis = redis
         self.autoid = autoid
         self.tab_data: Dict[str, str] = tab_data
+        self.client: Client = None
+        self.behaviors: List[Behavior] = []
+        self.all_behaviors: Optional[Task] = None
+        self.target_info: Optional[Dict] = None
+        self.sd_condition = sd_condition
         self._url: str = self.tab_data["url"]
         self._id: str = self.tab_data["id"]
-        self.client: Client = None
         self._behaviors_paused: bool = False
         self._running: bool = False
         self._reconnecting: bool = False
         self._reconnect_promise: Optional[Task] = None
         self._behavior: Optional[Behavior] = None
-        self.behaviors: List[Behavior] = []
-        self.all_behaviors: Optional[Task] = None
-        self.target_info: Optional[Dict] = None
         self._graceful_shutdown: bool = False
-        if self._loop is None:
-            self._loop = asyncio.get_event_loop()
+
+    @property
+    def _clz_name(self) -> str:
+        return self.__class__.__name__
 
     @property
     def loop(self) -> AbstractEventLoop:
@@ -183,7 +188,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         :param kwargs: Additional arguments to Page.navigate
         :return: The information returned by Page.navigate
         """
-        logger.info(f"BaseAutoTab[goto]: navigating to {url}")
+        logger.info(f"{self._clz_name}[goto]: navigating to {url}")
         return await self.client.Page.navigate(url, **kwargs)
 
     @classmethod
@@ -206,12 +211,14 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """
         if self._running:
             return
-        logger.info("BaseAutoTab[init]: initializing")
+        logger.info(f"{self._clz_name}[init]: initializing")
         self._running = True
-        logger.info(f"BaseAutoTab[init]: connecting to the browser {self.tab_data}")
+        logger.info(
+            f"{self._clz_name}[init]: connecting to the browser {self.tab_data}"
+        )
         self.client = await connect(self.tab_data["webSocketDebuggerUrl"], remote=True)
 
-        logger.info("BaseAutoTab[init]: connected to browser")
+        logger.info(f"{self._clz_name}[init]: connected to browser")
 
         self.client.set_close_callback(lambda: self.emit("connection-closed"))
 
@@ -224,7 +231,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
             self.client.Runtime.enable(),
         )
 
-        logger.info("BaseAutoTab[init]: enabled domains")
+        logger.info(f"{self._clz_name}[init]: enabled domains")
 
     @abstractmethod
     async def close(self) -> None:
@@ -249,10 +256,10 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
     def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         self.emit("target-crashed")
-        logger.critical(f'Target Crashed {args[0]}')
+        logger.critical(f"Target Crashed {args[0]}")
 
     def __str__(self) -> str:
-        return f"{self.__class__.__name__}(autoid={self.autoid}, {self.tab_data})"
+        return f"{self._clz_name}(autoid={self.autoid}, {self.tab_data})"
 
     def __repr__(self) -> str:
         return self.__str__()

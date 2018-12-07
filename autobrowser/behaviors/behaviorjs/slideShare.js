@@ -59,6 +59,16 @@
   }
 
   /**
+   * @param {string} eid
+   * @param {?Document} [context]
+   * @returns {?HTMLElement}
+   */
+  function id(eid, context) {
+    if (context != null) return context.getElementById(eid);
+    return document.getElementById(eid);
+  }
+
+  /**
    * @param {HTMLIFrameElement} iframe
    * @return {boolean}
    */
@@ -134,16 +144,6 @@
       await delay(delayTime);
     }
     return clicked;
-  }
-
-  /**
-   * @param {string} eid
-   * @param {?Document} [context]
-   * @returns {?HTMLElement}
-   */
-  function id(eid, context) {
-    if (context != null) return context.getElementById(eid);
-    return document.getElementById(eid);
   }
 
   /**
@@ -275,7 +275,7 @@
     const numSlides = getNumSlides(doc, slideSelector);
     let i = 1;
     for (; i < numSlides; ++i) {
-      await clickInContextWithDelay(id(selectors.nextSlide, doc), win);
+      clickInContext(id(selectors.nextSlide, doc), win);
     }
     await clickInContextWithDelay(id(selectors.nextSlide, doc), win);
   }

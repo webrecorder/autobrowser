@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-from typing import Callable, Dict, List, Union
+import asyncio
+from asyncio import AbstractEventLoop
+from typing import Callable, Dict, List, Union, Optional
 
 from pyee import EventEmitter
 
@@ -28,3 +30,9 @@ class Helper(object):
             handler = listener["handler"]
             emitter.remove_listener(event_name, handler)
         listeners.clear()
+
+    @staticmethod
+    def ensure_loop(loop: Optional[AbstractEventLoop] = None) -> AbstractEventLoop:
+        if loop is not None:
+            return loop
+        return asyncio.get_event_loop()

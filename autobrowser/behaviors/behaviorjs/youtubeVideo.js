@@ -427,7 +427,10 @@
    */
   async function viewAllReplies(mStream, renderer) {
     const replies = qs(selectors.loadedReplies, renderer);
-    if (replies != null && selectorExists('#more > div.more-button', renderer)) {
+    if (
+      replies != null &&
+      selectorExists('#more > div.more-button', renderer)
+    ) {
       // console.log('rendered has replies', replies);
       let mutation;
       for await (mutation of mStream.predicatedStream(
@@ -469,7 +472,7 @@
     }
     const commentsContainer = qs('#comments > #sections > #contents');
     const mStream = new MutationStream();
-    let comment = commentsContainer.firstElementChild;
+    let comment = commentsContainer.children[0];
     let numLoadedComments = commentsContainer.children.length;
     while (comment != null) {
       // console.log('viewing comment', comment);
@@ -499,11 +502,5 @@
     return next.done;
   };
 
-  // async function dummy () {
-  //   for await (let it of window.$WRIterator$) {
-  //
-  //   }
-  // }
-  //
-  // dummy().then(() => console.log('done'));
+  // playVideoAndLoadComments().then(() => console.log('done'));
 })($x, true);

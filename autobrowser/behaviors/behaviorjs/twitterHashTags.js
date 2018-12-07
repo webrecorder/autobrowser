@@ -477,7 +477,7 @@
   }
 
   /**
-   * @param {HTMLLIElement} tweetStreamLI
+   * @param {HTMLLIElement | Element} tweetStreamLI
    * @param {string} originalBaseURI
    * @return {AsyncIterator<boolean>}
    */
@@ -557,7 +557,9 @@
       tweetLI = tweetLI.nextElementSibling;
     }
   }
-
+  /**
+   * @type {AsyncIterator<boolean>}
+   */
   window.$WRTweetIterator$ = hashTagIterator(document.baseURI);
   window.$WRIteratorHandler$ = async function() {
     const next = await $WRTweetIterator$.next();

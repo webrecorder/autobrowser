@@ -1,7 +1,7 @@
 import logging
 from asyncio import Task, CancelledError, TimeoutError
 from pathlib import Path
-from typing import List, Optional, Any, Union
+from typing import List, Optional, Any, Union, Callable
 
 import aiofiles
 import os
@@ -53,6 +53,7 @@ class CrawlerTab(BaseAutoTab):
         #: The maximum amount of time the crawler should run behaviors for
         self._max_behavior_time: int = int(os.environ.get("BEHAVIOR_RUN_TIME", 60))
         self._navigation_timeout: int = int(os.environ.get("NAV_TO", 30))
+        self._indicate_done: Callable[[], None] = self.sd_condition.track_pending_task()
 
     @classmethod
     def create(cls, *args, **kwargs) -> "CrawlerTab":
@@ -229,6 +230,7 @@ class CrawlerTab(BaseAutoTab):
         if self.crawl_loop is not None:
             await self.crawl_loop
         await self.close()
+        self._indicate_done()
 
     def __str__(self) -> str:
         return f"CrawlerTab(autoid={self.autoid}, url={self.tab_data['url']})"

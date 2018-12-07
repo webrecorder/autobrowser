@@ -41,7 +41,7 @@ def to_redis_key(aid: str) -> str:
 @attr.dataclass(slots=True)
 class RedisScope(object):
     redis: Redis = attr.ib(repr=False)
-    scope_key: str = attr.ib(convert=to_redis_key)
+    scope_key: str = attr.ib(converter=to_redis_key)
     rules: List[MatchRule] = attr.ib(init=False, factory=list)
     all_links: bool = attr.ib(init=False, default=False)
 

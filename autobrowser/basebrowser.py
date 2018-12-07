@@ -10,6 +10,7 @@ from pyee import EventEmitter
 from redis import Redis
 
 from .tabs import TAB_CLASSES, BaseAutoTab
+from .util.shutdown import ShutdownCondition
 
 __all__ = ["BaseAutoBrowser", "DynamicBrowser"]
 
@@ -23,7 +24,6 @@ class AutoBrowserError(Exception):
 class BaseAutoBrowser(EventEmitter):
     CDP_JSON: ClassVar[str] = "http://{ip}:9222/json"
     CDP_JSON_NEW: ClassVar[str] = "http://{ip}:9222/json/new"
-
     WAIT_TIME: ClassVar[float] = 0.5
 
     def __init__(
@@ -37,7 +37,7 @@ class BaseAutoBrowser(EventEmitter):
         tab_opts=None,
         loop: Optional[AbstractEventLoop] = None,
         redis: Optional[Redis] = None,
-        shutdown_cb: Optional[Callable[[], None]] = None,
+        sd_condition: Optional[ShutdownCondition] = None,
     ) -> None:
         super().__init__(loop=loop if loop is not None else asyncio.get_event_loop())
         self.browser_id = browser_id
@@ -52,7 +52,7 @@ class BaseAutoBrowser(EventEmitter):
         self.tab_opts = tab_opts if tab_opts is not None else {}
         self.running = False
         self.redis = redis
-        self.shutdown_cb = shutdown_cb
+        self.sd_condition = sd_condition
 
     @property
     def loop(self) -> AbstractEventLoop:
@@ -64,7 +64,12 @@ class BaseAutoBrowser(EventEmitter):
         self.tabs.clear()
         for tab_data in tab_datas:
             tab = self.tab_class.create(
-                self, tab_data, self.autoid, redis=self.redis, **self.tab_opts
+                self,
+                tab_data,
+                self.autoid,
+                redis=self.redis,
+                sd_condition=self.sd_condition,
+                **self.tab_opts,
             )
             await tab.init()
             self.tabs.append(tab)
@@ -132,15 +137,14 @@ class BaseAutoBrowser(EventEmitter):
         return tab_datas
 
     async def add_browser_tab(self, ip: str) -> Optional[Dict[str, str]]:
-        tab = None  # type: Optional[Dict[str, str]]
         try:
             async with ClientSession(json_serialize=ujson.dumps) as session:
                 res = await session.get(self.CDP_JSON_NEW.format(ip=ip))
-                tab = await res.json()
+                return await res.json()
         except Exception as e:
             logger.error("*** " + str(e))
 
-        return tab
+        return None
 
 
 class DynamicBrowser(BaseAutoBrowser):
@@ -190,7 +194,12 @@ class DynamicBrowser(BaseAutoBrowser):
         self.tabs.clear()
         for tab_data in tab_datas:
             tab = self.tab_class.create(
-                self, tab_data, self.autoid, redis=self.redis, **self.tab_opts
+                self,
+                tab_data,
+                self.autoid,
+                redis=self.redis,
+                sd_condition=self.sd_condition,
+                **self.tab_opts,
             )
             await tab.init()
             self.tabs.append(tab)
