@@ -12,7 +12,6 @@ logger = logging.getLogger("autobrowser")
 
 class BehaviorTab(BaseAutoTab):
     async def init(self) -> None:
-        logger.info(f"BehaviorTab[init]: running = {self.running}")
         if self._running:
             return
         await super().init()
@@ -37,6 +36,3 @@ class BehaviorTab(BaseAutoTab):
             for behavior in self.behaviors:
                 await behavior.run()
             await asyncio.sleep(1)
-
-    def __str__(self) -> str:
-        return f"BehaviorTab(autoid={self.autoid}, {self.tab_data})"

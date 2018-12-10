@@ -41,12 +41,12 @@ class TestBehaviorManger(object):
 
     def test_create_default_returns_same_as_default(self):
         new_instance = create_default_behavior_man()
-        assert len(BehaviorManager.rules) == len(new_instance.rules)
+        assert len(BehaviorManager.rules) == len(new_instance.matchers)
         assert len(BehaviorManager.default_behavior_init) == len(
             new_instance.default_behavior_init
         )
 
-        for created, new in zip(BehaviorManager.rules, new_instance.rules):
+        for created, new in zip(BehaviorManager.rules, new_instance.matchers):
             assert created.behavior_class == new.behavior_class
             assert created.behavior_config == new.behavior_config
             assert created.regex.pattern == new.regex.pattern

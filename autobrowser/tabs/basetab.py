@@ -11,11 +11,11 @@ from cripy import Client, connect
 from pyee import EventEmitter
 
 from autobrowser.behaviors.basebehavior import Behavior
-from autobrowser.util import ShutdownCondition
+from autobrowser.automation import ShutdownCondition
 from autobrowser.util.netidle import monitor
 
 if TYPE_CHECKING:
-    from autobrowser.basebrowser import BaseAutoBrowser  # noqa: F401
+    from autobrowser.browser import Browser  # noqa: F401
 
 __all__ = ["BaseAutoTab"]
 
@@ -27,9 +27,8 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
     def __init__(
         self,
-        browser: "BaseAutoBrowser",
+        browser: "Browser",
         tab_data: Dict[str, str],
-        autoid: str,
         redis: Optional[Redis] = None,
         sd_condition: Optional[ShutdownCondition] = None,
         **kwargs,
@@ -39,9 +38,8 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         else:
             loop: AbstractEventLoop = asyncio.get_event_loop()
         super().__init__(loop=loop)
-        self.browser: "BaseAutoBrowser" = browser
+        self.browser: "Browser" = browser
         self.redis = redis
-        self.autoid = autoid
         self.tab_data: Dict[str, str] = tab_data
         self.client: Client = None
         self.behaviors: List[Behavior] = []
@@ -125,6 +123,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         replaced with the devtools."""
         if result["reason"] == "replaced_with_devtools":
             self._reconnecting = True
+            self._running = False
             self._reconnect_promise = self._loop.create_task(self._wait_for_reconnect())
 
     async def wait_for_reconnect(self) -> None:
@@ -167,7 +166,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         :param js_string: The string of JavaScript to be evaluated
         :return: The results of the evaluation if any
         """
-        logger.info(f"BaseAutoTab[evaluate_in_page]: evaluating behavior js in page")
+        logger.info(f"{self._clz_name}[evaluate_in_page]: evaluating js in page")
         results = await self.client.Runtime.evaluate(
             js_string,
             contextId=contextId,
@@ -201,26 +200,20 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """
         pass
 
-    @abstractmethod
-    async def init(self) -> None:
-        """Initialize the client connection to the tab.
+    def on_connection_closed(self) -> None:
+        self.emit("connection-closed")
 
-        Subclasses are expected to call this method from their
-        implementation. This can be the only call in their
-        implementation.
-        """
+    async def connect_to_tab(self) -> None:
         if self._running:
             return
-        logger.info(f"{self._clz_name}[init]: initializing")
-        self._running = True
         logger.info(
-            f"{self._clz_name}[init]: connecting to the browser {self.tab_data}"
+            f"{self._clz_name}[connect_to_tab]: connecting to the browser {self.tab_data}"
         )
         self.client = await connect(self.tab_data["webSocketDebuggerUrl"], remote=True)
 
-        logger.info(f"{self._clz_name}[init]: connected to browser")
+        logger.info(f"{self._clz_name}[connect_to_tab]: connected to browser")
 
-        self.client.set_close_callback(lambda: self.emit("connection-closed"))
+        self.client.set_close_callback(self.on_connection_closed)
 
         self.client.Inspector.detached(self.devtools_reconnect)
         self.client.Inspector.targetCrashed(self._on_inspector_crashed)
@@ -229,9 +222,24 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
             self.client.Page.enable(),
             self.client.Network.enable(),
             self.client.Runtime.enable(),
+            loop=self.loop
         )
 
         logger.info(f"{self._clz_name}[init]: enabled domains")
+
+    @abstractmethod
+    async def init(self) -> None:
+        """Initialize the client connection to the tab.
+
+        Subclasses are expected to call this method from their
+        implementation. This can be the only call in their
+        implementation.
+        """
+        logger.info(f"{self._clz_name}[init]: running = {self.running}")
+        if self._running:
+            return
+        await self.connect_to_tab()
+        self._running = True
 
     @abstractmethod
     async def close(self) -> None:
@@ -241,7 +249,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         implementation. This can be the only call in their
         implementation.
         """
-        logger.info("BaseAutoTab[close]: closing")
+        logger.info(f"{self._clz_name}[close]: closing client")
         if self.reconnecting:
             self.stop_reconnecting()
         if self.client:
@@ -250,16 +258,19 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self._running = False
 
     async def shutdown_gracefully(self) -> None:
-        logger.info("BaseAutoTab[shutdown_gracefully]: shutting down")
+        logger.info(f"{self._clz_name}[shutdown_gracefully]: shutting down")
         self._graceful_shutdown = True
         await self.close()
+
+    async def collect_outlinks(self) -> None:
+        pass
 
     def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         self.emit("target-crashed")
         logger.critical(f"Target Crashed {args[0]}")
 
     def __str__(self) -> str:
-        return f"{self._clz_name}(autoid={self.autoid}, {self.tab_data})"
+        return f"{self._clz_name}(browser={self.browser}, tab_data={self.tab_data})"
 
     def __repr__(self) -> str:
         return self.__str__()

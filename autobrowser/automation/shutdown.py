@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 import attr
 
-from .helper import Helper
+from autobrowser.util.helper import Helper
 
 __all__ = ["ShutdownCondition"]
 
@@ -40,9 +40,10 @@ class ShutdownCondition(object):
         return self._finished_task
 
     def _finished_task(self) -> None:
-        self._pending_tasks -= 1
-        if self._pending_tasks == 0:
-            self.initiate_shutdown()
+        if self._pending_tasks != 0:
+            self._pending_tasks -= 1
+            if self._pending_tasks == 0:
+                self.initiate_shutdown()
 
     def __await__(self) -> Any:
         return self.loop.create_task(self._shutdown_event.wait()).__await__()

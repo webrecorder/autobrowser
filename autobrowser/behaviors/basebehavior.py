@@ -36,21 +36,18 @@ class Behavior(ABC):
 
     tab: "BaseAutoTab" = attr.ib()
     conf: Dict = attr.ib(factory=dict)
+    collect_outlinks: bool = attr.ib(default=False)
     frame: Optional[Union[Frame, Callable[[], Frame]]] = attr.ib(default=None)
     _has_resource: bool = attr.ib(default=False, init=False)
     _pre_init: bool = attr.ib(default=False, init=False)
     _done: bool = attr.ib(default=False, init=False)
     _paused: bool = attr.ib(default=False, init=False)
     _did_init: bool = attr.ib(default=False, init=False)
-    _resource: str = attr.ib(default="", init=False)
-    _running_task: Optional[Task] = attr.ib(default=None, init=False)
-    _outlink_collection_fn: Optional[Callable[[], Awaitable[None]]] = attr.ib(default=None, init=False)
+    _resource: str = attr.ib(default="", init=False, repr=False)
+    _running_task: Optional[Task] = attr.ib(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self):
         self._pre_init = self.conf.get("pre_init", self._pre_init)
-
-    def set_outlink_collection_fn(self, olf: Callable[[], Awaitable[None]]) -> None:
-        self._outlink_collection_fn = olf
 
     @property
     def _clz_name(self) -> str:
@@ -141,8 +138,8 @@ class Behavior(ABC):
         logger.info(f"{self._clz_name}[run]: running behavior")
         while not self.done:
             await self.perform_action()
-            if self._outlink_collection_fn is not None:
-                await self._outlink_collection_fn()
+            if self.collect_outlinks is not None:
+                await self.tab.collect_outlinks()
         logger.info(f"{self._clz_name}[run]: behavior done")
 
     def evaluate_in_page(self, js_string: str) -> Awaitable[Any]:

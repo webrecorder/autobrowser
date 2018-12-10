@@ -11,10 +11,10 @@ import aioredis
 import attr
 from aioredis import Redis, Channel
 
-from .basebrowser import BaseAutoBrowser, DynamicBrowser
-from .util.shutdown import ShutdownCondition
+from .browser import Browser, DynamicBrowser
+from .automation import AutomationInfo, BrowserRequests, ShutdownCondition
 
-__all__ = ["Driver", "SingleBrowserDriver"]
+__all__ = ["Driver", "SingleBrowserDriver", "run_driver"]
 
 logger = logging.getLogger("autobrowser")
 
@@ -73,17 +73,13 @@ class Driver(object):
         browser = self.browsers.get(reqid)
         if not browser:
             browser = DynamicBrowser(
-                api_host="http://shepherd:9020",
-                autoid=reqid,
-                tab_class="BehaviorTab",
+                BrowserRequests(api_host="http://shepherd:9020"),
                 loop=self.loop,
                 redis=self.redis,
-                sd_tracker=self.shutdown_condition
+                sd_condition=self.shutdown_condition,
             )
 
-            await browser.init(reqid)
-            # browser.on('browser_removed', self.remove_browser)
-
+            await browser.init(AutomationInfo(reqid=reqid))
             self.browsers[reqid] = browser
 
     async def remove_browser(self, reqid) -> None:
@@ -102,7 +98,7 @@ class SingleBrowserDriver(object):
     loop: AbstractEventLoop = attr.ib(default=None)
     redis: Redis = attr.ib(init=False, default=None)
     shutdown_condition: ShutdownCondition = attr.ib(init=False, default=None)
-    browser: BaseAutoBrowser = attr.ib(init=False, default=None)
+    browser: Browser = attr.ib(init=False, default=None)
 
     async def run(self) -> None:
         if self.loop is None:
@@ -117,18 +113,34 @@ class SingleBrowserDriver(object):
 
         logger.debug("SingleBrowserDriver[run]: connecting to Auto-Browser")
 
-        browser = BaseAutoBrowser(
-            autoid=os.environ.get("AUTO_ID"),
-            tab_class="CrawlerTab",
+        browser = Browser(
+            BrowserRequests(),
             loop=self.loop,
             redis=self.redis,
-            sd_condition=self.shutdown_condition
+            sd_condition=self.shutdown_condition,
         )
-        ip = socket.gethostbyname(os.environ.get("BROWSER_HOST"))
 
-        await browser.init(ip=ip)
+        await browser.init(
+            AutomationInfo(
+                tab_type="CrawlerTab",
+                autoid=os.environ.get("AUTO_ID"),
+                ip=socket.gethostbyname(os.environ.get("BROWSER_HOST"))
+            )
+        )
         logger.info("SingleBrowserDriver[run]: waiting for shutdown")
         await self.shutdown_condition
         await browser.shutdown_gracefully()
         self.redis.close()
         await self.redis.wait_closed()
+
+
+async def run_driver():
+    loop = asyncio.get_event_loop()
+    if os.environ.get("BROWSER_HOST"):
+        logger.info("run_driver: using SingleBrowserDriver")
+        cls = SingleBrowserDriver(loop=loop)
+    else:
+        logger.info("run_driver: using Driver")
+        cls = Driver(loop=loop)
+
+    await cls.run()

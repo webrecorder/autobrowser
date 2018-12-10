@@ -14,6 +14,8 @@ from cripy import Client
 from urlcanon import parse_url
 
 from autobrowser.tabs.crawlerTab import CrawlerTab
+from autobrowser.browser import Browser
+from autobrowser.automation import AutomationInfo, ShutdownCondition
 
 # import sys
 
@@ -76,10 +78,7 @@ DEFAULT_ARGS = [
 @asynccontextmanager
 async def launch_chrome(loop: AbstractEventLoop) -> Dict[str, str]:
     proc = await asyncio.create_subprocess_exec(
-        CHROME,
-        *DEFAULT_ARGS,
-        stderr=asyncio.subprocess.PIPE,
-        loop=loop,
+        CHROME, *DEFAULT_ARGS, stderr=asyncio.subprocess.PIPE, loop=loop
     )
     while True:
         line = await proc.stderr.readline()
@@ -111,9 +110,19 @@ async def reset_redis(redis: Redis):
         ujson.dumps(dict(url="https://www.youtube.com/watch?v=MfH0oirdHLs", depth=0)),
         ujson.dumps(dict(url="https://www.facebook.com/Smithsonian/", depth=0)),
         ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),
-        ujson.dumps(dict(url="https://twitter.com/hashtag/iipcwac18?vertical=default&src=hash", depth=0)),
+        ujson.dumps(
+            dict(
+                url="https://twitter.com/hashtag/iipcwac18?vertical=default&src=hash",
+                depth=0,
+            )
+        ),
         ujson.dumps(dict(url="https://soundcloud.com/perturbator", depth=0)),
-        ujson.dumps(dict(url="https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview", depth=0)),
+        ujson.dumps(
+            dict(
+                url="https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview",
+                depth=0,
+            )
+        ),
         ujson.dumps(dict(url="https://twitter.com/webrecorder_io", depth=0)),
         # ujson.dumps(dict(url="https://rhizome.org/", depth=0)),
     )
@@ -121,8 +130,14 @@ async def reset_redis(redis: Redis):
     await redis.sadd(seen_key, "https://www.facebook.com/Smithsonian/")
     await redis.sadd(seen_key, "https://soundcloud.com/perturbator")
     await redis.sadd(seen_key, "https://twitter.com/webrecorder_io")
-    await redis.sadd(seen_key, "https://twitter.com/hashtag/iipcwac18?f=tweets&vertical=default&src=hash")
-    await redis.sadd(seen_key, "https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview")
+    await redis.sadd(
+        seen_key,
+        "https://twitter.com/hashtag/iipcwac18?f=tweets&vertical=default&src=hash",
+    )
+    await redis.sadd(
+        seen_key,
+        "https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview",
+    )
     await redis.sadd(seen_key, "https://www.instagram.com/rhizomedotorg")
     # await redis.sadd(seen_key, "https://rhizome.org/")
     # await redis.sadd(
@@ -140,6 +155,11 @@ logger.setLevel(logging.DEBUG)
 # logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
+class DummySDC:
+    def track_pending_task(self):
+        return lambda: None
+
+
 async def crawl_baby_crawl() -> None:
     loop: AbstractEventLoop = asyncio.get_event_loop()
     async with launch_chrome(loop) as tab_info:
@@ -151,9 +171,21 @@ async def crawl_baby_crawl() -> None:
             )
             if RESET_REDIS:
                 await reset_redis(redis)
-            crawl_tab = CrawlerTab.create(None, tab_info, dummy_auto_id, redis=redis)
+            crawl_tab = CrawlerTab.create(
+                Browser(
+                    browser_req=None,
+                    automation=AutomationInfo(autoid=dummy_auto_id),
+                    redis=redis,
+                    loop=loop,
+                    sd_condition=DummySDC(),
+                ),
+                tab_info,
+                redis=redis,
+            )
             await crawl_tab.init()
             await crawl_tab.crawl_loop
+        except KeyboardInterrupt:
+            pass
         except Exception as e:
             traceback.print_exc()
         finally:
