@@ -10,14 +10,14 @@ from simplechrome.frame_manager import FrameManager, Frame
 
 from autobrowser.behaviors import BehaviorManager
 from autobrowser.frontier import RedisFrontier
-from .basetab import BaseAutoTab
+from .basetab import Tab
 
 __all__ = ["CrawlerTab"]
 
 logger = logging.getLogger("autobrowser")
 
 
-class CrawlerTab(BaseAutoTab):
+class CrawlerTab(Tab):
     """Crawling specific tab.
 
     Env vars:
@@ -43,8 +43,8 @@ class CrawlerTab(BaseAutoTab):
         self.crawl_loop: Optional[Task] = None
         self.frontier: RedisFrontier = RedisFrontier(self.redis, self.browser.autoid)
         #: The maximum amount of time the crawler should run behaviors for
-        self._max_behavior_time: int = self.browser.automation.max_behavior_time
-        self._navigation_timeout: int = self.browser.automation.navigation_timeout
+        self._max_behavior_time: int = self.browser.info.max_behavior_time
+        self._navigation_timeout: int = self.browser.info.navigation_timeout
         self._indicate_done: Callable[
             [], None
         ] = self.browser.sd_condition.track_pending_task()
@@ -65,7 +65,7 @@ class CrawlerTab(BaseAutoTab):
         logger.info("CrawlerTab[init]: initializing")
         # must call super init
         await super().init()
-        if self.browser.automation.net_cache_disabled:
+        if self.browser.info.net_cache_disabled:
             await self.client.Network.setCacheDisabled(True)
         # enable receiving of frame lifecycle events for the frame manager
         await self.client.Page.setLifecycleEventsEnabled(True)
@@ -80,25 +80,25 @@ class CrawlerTab(BaseAutoTab):
         ) as iin:
             await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
         await self.frontier.init()
-        if self.browser.automation.wait_for_q:
+        if self.browser.info.wait_for_q:
             await self.frontier.wait_for_populated_q()
         self.crawl_loop = self.loop.create_task(self.crawl())
         logger.info("CrawlerTab[init]: initialized")
 
     async def goto(
-        self, url: str, waitUntil: str = "networkidle0", **kwargs: Any
+        self, url: str, wait: str = "networkidle2", **kwargs: Any
     ) -> bool:
         """Navigate the browser to the supplied URL.
 
         :param url: The URL of the page to navigate to
-        :param waitUntil: The wait condition that all the pages frame have
+        :param wait: The wait condition that all the pages frame have
         before navigation is considered complete
         :param kwargs: Any additional arguments for use in navigating
         :return: True or False indicating if navigation encountered an error
         """
         try:
             await self.main_frame.goto(
-                url, waitUntil=waitUntil, timeout=self._navigation_timeout, **kwargs
+                url, waitUntil=wait, timeout=self._navigation_timeout, **kwargs
             )
         except NavigationError as ne:
             logger.exception(

@@ -1,4 +1,13 @@
-__all__ = ["BrowserInitError", "AutoBrowserError", "AutoTabError"]
+__all__ = [
+    "BrowserInitError",
+    "BrowserStagingError",
+    "AutoBrowserError",
+    "AutoTabError",
+]
+
+
+class BrowserStagingError(Exception):
+    pass
 
 
 class BrowserInitError(Exception):

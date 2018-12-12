@@ -1,5 +1,5 @@
-from .info import AutomationInfo
+from .details import AutomationInfo, AutomationConfig
 from .shutdown import ShutdownCondition
 from .util import BrowserRequests
 
-__all__ = ["AutomationInfo", "BrowserRequests", "ShutdownCondition"]
+__all__ = ["AutomationConfig", "AutomationInfo", "BrowserRequests", "ShutdownCondition"]

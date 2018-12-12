@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 import logging
 
-from .browser import Browser, DynamicBrowser
+from .browser import Browser
 from .behaviors import AutoScrollBehavior, Behavior, ScrollBehavior, BehaviorManager
-from .driver import Driver, run_driver, SingleBrowserDriver
-from .tabs import BaseAutoTab, BehaviorTab, TAB_CLASSES
+from .driver import SingleBrowserDriver, MultiBrowserDriver
+from .tabs import Tab, BehaviorTab, TAB_CLASSES
 from .util import NetworkIdleMonitor, monitor, Helper
 from .errors import AutoTabError, AutoBrowserError, BrowserInitError
 
@@ -18,16 +18,14 @@ __all__ = [
     "AutoScrollBehavior",
     "BrowserInitError",
     "Browser",
-    "BaseAutoTab",
+    "Tab",
     "Behavior",
     "BehaviorTab",
     "BehaviorManager",
-    "DynamicBrowser",
-    "Driver",
     "Helper",
     "monitor",
+    "MultiBrowserDriver",
     "NetworkIdleMonitor",
-    "run_driver",
     "SingleBrowserDriver",
     "ScrollBehavior",
     "TAB_CLASSES",

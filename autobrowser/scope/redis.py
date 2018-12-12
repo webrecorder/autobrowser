@@ -1,37 +1,17 @@
 import logging
 import ujson
-from typing import Set, List
+from typing import List
 
 import attr
 from aioredis import Redis
-from urlcanon import parse_url, MatchRule
+from urlcanon import MatchRule
 
 surt_end = b")"
 
-__all__ = ["Scope", "RedisScope"]
+__all__ = ["RedisScope"]
 
 
 logger = logging.getLogger("autobrowser")
-
-
-@attr.dataclass(slots=True)
-class Scope(object):
-    surts: Set[bytes] = attr.ib()
-
-    @staticmethod
-    def from_seeds(seed_list: List[str]) -> "Scope":
-        new_list: Set[bytes] = set()
-        for url in seed_list:
-            surt = parse_url(url).surt(with_scheme=False)
-            new_list.add(surt[0 : surt.index(surt_end) + 1])
-        return Scope(new_list)
-
-    def in_scope(self, url: str) -> bool:
-        usurt = parse_url(url).surt(with_scheme=False)
-        for surt in self.surts:
-            if usurt.startswith(surt):
-                return True
-        return False
 
 
 def to_redis_key(aid: str) -> str:

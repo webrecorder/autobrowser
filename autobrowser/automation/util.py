@@ -130,7 +130,7 @@ class BrowserRequests(object):
         res = await self.session.get(CDP_JSON_NEW.format(ip=ip))
         return await res.json()
 
-    async def close(self):
+    async def close(self) -> None:
         """Close the underlying client session"""
         await self.session.close()
 

@@ -17,12 +17,12 @@ from autobrowser.util.netidle import monitor
 if TYPE_CHECKING:
     from autobrowser.browser import Browser  # noqa: F401
 
-__all__ = ["BaseAutoTab"]
+__all__ = ["Tab"]
 
 logger = logging.getLogger("autobrowser")
 
 
-class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
+class Tab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
 
     def __init__(
@@ -192,7 +192,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def create(cls, *args: Any, **kwargs: Any) -> "BaseAutoTab":
+    def create(cls, *args: Any, **kwargs: Any) -> "Tab":
         """Abstract method for creating new instances of a tab.
 
         Subclasses are expected to supply the means for creating

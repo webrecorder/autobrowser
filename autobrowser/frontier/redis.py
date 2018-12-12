@@ -1,55 +1,17 @@
 import asyncio
 import logging
 import ujson
-from typing import Set, Tuple, List, Awaitable, ClassVar, Dict, Union
+from asyncio import AbstractEventLoop
+from typing import List, Awaitable, ClassVar, Dict, Union
 
 import attr
 from aioredis import Redis
 
-from .scope import Scope, RedisScope
+from autobrowser.scope import RedisScope
+
+__all__ = ["RedisFrontier"]
 
 logger = logging.getLogger("autobrowser")
-
-
-@attr.dataclass(slots=True)
-class Frontier(object):
-    scope: Scope = attr.ib()
-    depth: int = attr.ib()
-    seen: Set[str] = attr.ib(init=False, factory=set)
-    queue: List[Tuple[str, int]] = attr.ib(init=False, factory=list)
-    running: Tuple[str, int] = attr.ib(init=False, default=None)
-
-    async def init(self) -> None:
-        pass
-
-    async def exhausted(self) -> bool:
-        return len(self.queue) == 0
-
-    async def next_url(self) -> str:
-        next_url = self.queue.pop()
-        self.running = next_url
-        return next_url[0]
-
-    async def add(self, url: str, depth: int, scope: bool = True) -> None:
-        should_add = self.scope.in_scope(url) if scope else True
-        if should_add and url not in self.seen:
-            self.queue.append((url, depth))
-            self.seen.add(url)
-
-    async def add_all(self, urls: List[str]) -> None:
-        next_depth = self.running[1] + 1
-        if next_depth > self.depth:
-            return
-        for url in urls:
-            await self.add(url, depth=next_depth)
-
-    @staticmethod
-    def init_(depth: int, seed_list: List[str]) -> "Frontier":
-        frontier = Frontier(Scope.from_seeds(seed_list), depth)
-        for url in seed_list:
-            frontier.queue.append((url, 0))
-            frontier.seen.add(url)
-        return frontier
 
 
 def to_redis_key(aid: str) -> str:
@@ -60,6 +22,7 @@ def to_redis_key(aid: str) -> str:
 class RedisFrontier(object):
     redis: Redis = attr.ib(repr=False)
     autoid: str = attr.ib(convert=to_redis_key)
+    loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
     scope: RedisScope = attr.ib(init=False)
     info_key: str = attr.ib(init=False, default=None)
     q_key: str = attr.ib(init=False, default=None)
@@ -83,12 +46,11 @@ class RedisFrontier(object):
         logger.info(
             f"RedisFrontier[wait_for_populated_q]: starting wait loop, checking every {wait_time} seconds"
         )
-        loop = asyncio.get_event_loop()
         while await self.exhausted():
             logger.info(
                 f"RedisFrontier[wait_for_populated_q]: q still empty, waiting another {wait_time} seconds"
             )
-            await asyncio.sleep(wait_time, loop=loop)
+            await asyncio.sleep(wait_time, loop=self.loop)
         q_len = await self.q_len()
         logger.info(
             f"RedisFrontier[wait_for_populated_q]: q populated with {q_len} URLs"
@@ -169,6 +131,7 @@ class RedisFrontier(object):
             await asyncio.gather(
                 self.redis.rpush(self.q_key, ujson.dumps(dict(url=url, depth=depth))),
                 self.redis.sadd(self.seen_key, url),
+                loop=self.loop,
             )
 
     async def add_all(self, urls: List[str]) -> None:
@@ -202,9 +165,10 @@ class RedisFrontier(object):
             await asyncio.gather(
                 self.redis.rpush(self.q_key, *add_to_queue),
                 self.redis.sadd(self.seen_key, *add_to_seen),
+                loop=self.loop,
             )
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
         self.info_key = f"{self.autoid}:info"
         self.q_key = f"{self.autoid}:q"
         self.pending_key = f"{self.autoid}:qp"

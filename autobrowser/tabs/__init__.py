@@ -3,19 +3,21 @@ from typing import Any, Dict, Type, TYPE_CHECKING
 
 from .behaviorTab import BehaviorTab
 from .crawlerTab import CrawlerTab
-from .basetab import BaseAutoTab
+from .basetab import Tab
 
 if TYPE_CHECKING:
     from autobrowser.browser import Browser  # noqa: F401
 
-__all__ = ["BaseAutoTab", "BehaviorTab", "TAB_CLASSES", "create_tab"]
+__all__ = ["Tab", "BehaviorTab", "TAB_CLASSES", "create_tab"]
 
-TAB_CLASSES: Dict[str, Type[BaseAutoTab]] = dict(
+TAB_CLASSES: Dict[str, Type[Tab]] = dict(
     BehaviorTab=BehaviorTab, CrawlerTab=CrawlerTab
 )
 
 
-def create_tab(browser: "Browser", tab_data: Dict, **kwargs: Any) -> BaseAutoTab:
-    return TAB_CLASSES[browser.automation.tab_type].create(
+async def create_tab(browser: "Browser", tab_data: Dict, **kwargs: Any) -> Tab:
+    tab = TAB_CLASSES[browser.conf.tab_type].create(
         browser=browser, tab_data=tab_data, **kwargs
     )
+    await tab.init()
+    return tab

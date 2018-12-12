@@ -10,9 +10,8 @@ from typing import Dict, List
 import aioredis
 import uvloop
 from aioredis import Redis
-from cripy import Client
+from cripy import Client, connect
 from urlcanon import parse_url
-
 from autobrowser.tabs.crawlerTab import CrawlerTab
 from autobrowser.browser import Browser
 from autobrowser.automation import AutomationInfo, ShutdownCondition
@@ -173,8 +172,7 @@ async def crawl_baby_crawl() -> None:
                 await reset_redis(redis)
             crawl_tab = CrawlerTab.create(
                 Browser(
-                    browser_req=None,
-                    automation=AutomationInfo(autoid=dummy_auto_id),
+                    info=AutomationInfo(autoid=dummy_auto_id),
                     redis=redis,
                     loop=loop,
                     sd_condition=DummySDC(),
@@ -195,8 +193,6 @@ async def crawl_baby_crawl() -> None:
                 redis.close()
                 await redis.wait_closed()
 
-
-#
 
 if __name__ == "__main__":
     aiorun(crawl_baby_crawl())

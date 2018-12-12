@@ -3,14 +3,14 @@ import asyncio
 import logging
 
 from autobrowser.behaviors.behavior_manager import BehaviorManager
-from .basetab import BaseAutoTab
+from .basetab import Tab
 
 __all__ = ["BehaviorTab"]
 
 logger = logging.getLogger("autobrowser")
 
 
-class BehaviorTab(BaseAutoTab):
+class BehaviorTab(Tab):
     async def init(self) -> None:
         if self._running:
             return
