@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import asyncio
-from asyncio import Future, Task
+from asyncio import AbstractEventLoop, Future, Task
 from typing import Optional, Set, Dict, List, Any
 
 import async_timeout
@@ -22,6 +22,7 @@ class NetworkIdleMonitor(EventEmitter):
         num_inflight: int = 2,
         idle_time: int = 2,
         global_wait: int = 60,
+        loop: Optional[AbstractEventLoop] = None,
     ) -> None:
         """Construct a new Network Idle monitor
 
@@ -32,8 +33,9 @@ class NetworkIdleMonitor(EventEmitter):
         for network idle
         :param global_wait: Time in seconds to wait unconditionally before emitting
         network idle
+        :param loop:
         """
-        super().__init__(loop=asyncio.get_event_loop())
+        super().__init__(loop=loop if loop is not None else asyncio.get_event_loop())
         self.client: Client = client
         self.requestIds: Set[str] = set()
         self.num_inflight: int = num_inflight
@@ -51,6 +53,7 @@ class NetworkIdleMonitor(EventEmitter):
         num_inflight: int = 2,
         idle_time: int = 2,
         global_wait: int = 60,
+        loop: Optional[AbstractEventLoop] = None,
     ) -> Task:
         """Returns a future that resolves once network idle has been determined
 
@@ -61,12 +64,14 @@ class NetworkIdleMonitor(EventEmitter):
         for network idle
         :param global_wait: Time in seconds to wait unconditionally before emitting
         network idle
+        :param loop:
         """
         niw = cls(
             client=client,
             num_inflight=num_inflight,
             idle_time=idle_time,
             global_wait=global_wait,
+            loop=loop,
         )
         return niw.create_idle_future()
 
@@ -167,7 +172,11 @@ class NetworkIdleMonitor(EventEmitter):
 
 
 def monitor(
-    client: Client, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
+    client: Client,
+    num_inflight: int = 2,
+    idle_time: int = 2,
+    global_wait: int = 60,
+    loop: Optional[AbstractEventLoop] = None,
 ) -> Task:
     """Returns a future that resolves once network idle has been determined
 
@@ -178,10 +187,12 @@ def monitor(
     network idle
     :param global_wait: Time in seconds to wait unconditionally before emitting
     network idle
+    :param loop:
     """
     return NetworkIdleMonitor.monitor(
         client=client,
         num_inflight=num_inflight,
         idle_time=idle_time,
         global_wait=global_wait,
+        loop=loop
     )

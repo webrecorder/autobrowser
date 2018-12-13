@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import logging
 from importlib import import_module
 from pathlib import Path
@@ -10,7 +9,7 @@ from urlcanon.rules import MatchRule
 
 if TYPE_CHECKING:
     from .basebehavior import Behavior  # noqa: F401
-    from ..tabs import BaseAutoTab  # noqa: F401
+    from ..tabs import Tab  # noqa: F401
 
 __all__ = [
     "BehaviorMatcher",
@@ -53,11 +52,11 @@ class BehaviorMatcher(object):
     matcher: MatchRule = attr.ib(init=False)
 
     @matcher.default
-    def matcher_default(self):
+    def matcher_default(self) -> MatchRule:
         return MatchRule(**self.behavior_config.get("match"))
 
     def create_behavior(
-        self, tab: "BaseAutoTab", **kwargs: Any
+        self, tab: "Tab", **kwargs: Any
     ) -> "Behavior":
         """Create the Behavior associated with the rule.
 
@@ -82,7 +81,7 @@ class _BehaviorManager(object):
     default_behavior_init: Tuple[Type["Behavior"], Dict] = attr.ib()
 
     def behavior_for_url_exact(
-        self, url: str, tab: "BaseAutoTab", **kwargs: Any
+        self, url: str, tab: "Tab", **kwargs: Any
     ) -> Optional["Behavior"]:
         """Retrieve the behavior for the supplied URL exactly.
 
@@ -99,7 +98,7 @@ class _BehaviorManager(object):
         return None
 
     def behavior_for_url(
-        self, url: str, tab: "BaseAutoTab", **kwargs: Any
+        self, url: str, tab: "Tab", **kwargs: Any
     ) -> "Behavior":
         """Retrieve the behavior for the supplied URL, if no behavior's
         url matches then a default behavior is returned.

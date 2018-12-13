@@ -4,26 +4,35 @@ import asyncio
 import logging
 from abc import ABCMeta, abstractmethod
 from asyncio import Task, AbstractEventLoop
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, ClassVar
 
+import attr
 from aioredis import Redis
 from cripy import Client, connect
 from pyee import EventEmitter
 
-from autobrowser.behaviors.basebehavior import Behavior
 from autobrowser.automation import ShutdownCondition
+from autobrowser.behaviors.basebehavior import Behavior
 from autobrowser.util.netidle import monitor
 
 if TYPE_CHECKING:
     from autobrowser.browser import Browser  # noqa: F401
 
-__all__ = ["BaseAutoTab"]
+__all__ = ["Tab"]
 
 logger = logging.getLogger("autobrowser")
 
 
-class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
+@attr.dataclass(frozen=True)
+class TabEvents(object):
+    Crashed: str = attr.ib(default='Tab:Crashed')
+    ConnectionClosed: str = attr.ib(default='Tab:ConnectionClosed')
+
+
+class Tab(EventEmitter, metaclass=ABCMeta):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
+
+    Events: ClassVar[TabEvents] = TabEvents()
 
     def __init__(
         self,
@@ -54,10 +63,8 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         self._reconnect_promise: Optional[Task] = None
         self._behavior: Optional[Behavior] = None
         self._graceful_shutdown: bool = False
-
-    @property
-    def _clz_name(self) -> str:
-        return self.__class__.__name__
+        self._running_behavior: Optional[Behavior] = None
+        self._clz_name = self.__class__.__name__
 
     @property
     def loop(self) -> AbstractEventLoop:
@@ -95,8 +102,12 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         """
         self.behaviors.append(behavior)
 
-    def set_behavior(self, behavior: Behavior) -> None:
-        self._behavior = behavior
+    def set_running_behavior(self, behavior: Behavior) -> None:
+        self._running_behavior = behavior
+
+    def unset_running_behavior(self, behavior: Behavior) -> None:
+        if self._running_behavior and behavior is self._running_behavior:
+            self._running_behavior = None
 
     def pause_behaviors(self) -> None:
         """Sets the behaviors paused flag to true"""
@@ -192,16 +203,13 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def create(cls, *args: Any, **kwargs: Any) -> "BaseAutoTab":
+    def create(cls, *args: Any, **kwargs: Any) -> "Tab":
         """Abstract method for creating new instances of a tab.
 
         Subclasses are expected to supply the means for creating
         themselves their implementation
         """
         pass
-
-    def on_connection_closed(self) -> None:
-        self.emit("connection-closed")
 
     async def connect_to_tab(self) -> None:
         if self._running:
@@ -213,7 +221,7 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
 
         logger.info(f"{self._clz_name}[connect_to_tab]: connected to browser")
 
-        self.client.set_close_callback(self.on_connection_closed)
+        self.client.set_close_callback(self._on_connection_closed)
 
         self.client.Inspector.detached(self.devtools_reconnect)
         self.client.Inspector.targetCrashed(self._on_inspector_crashed)
@@ -249,13 +257,13 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         implementation. This can be the only call in their
         implementation.
         """
+        self._running = False
         logger.info(f"{self._clz_name}[close]: closing client")
         if self.reconnecting:
             self.stop_reconnecting()
         if self.client:
             await self.client.dispose()
             self.client = None
-        self._running = False
 
     async def shutdown_gracefully(self) -> None:
         logger.info(f"{self._clz_name}[shutdown_gracefully]: shutting down")
@@ -266,11 +274,16 @@ class BaseAutoTab(EventEmitter, metaclass=ABCMeta):
         pass
 
     def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
-        self.emit("target-crashed")
-        logger.critical(f"Target Crashed {args[0]}")
+        self.emit(self.Events.Crashed, self.tab_id)
+        logger.critical(f"{self._clz_name}[_on_inspector_crashed]: target Crashed {args[0]}")
+
+    def _on_connection_closed(self) -> None:
+        if self._running:
+            logger.critical(f"{self._clz_name}<url={self._url}>[_on_connection_closed]: connection closed while running")
+            self.emit(self.Events.ConnectionClosed, self.tab_id)
 
     def __str__(self) -> str:
-        return f"{self._clz_name}(browser={self.browser}, tab_data={self.tab_data})"
+        return f"{self._clz_name}(tab_id={self.tab_id}, url={self._url})"
 
     def __repr__(self) -> str:
         return self.__str__()

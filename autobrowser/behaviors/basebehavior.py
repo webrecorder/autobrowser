@@ -4,14 +4,14 @@ import logging
 from abc import ABC, abstractmethod
 from asyncio import Task, AbstractEventLoop
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, ClassVar, Any, Awaitable, Callable, Union
+from typing import Any, Awaitable, Callable, Dict, Optional, ClassVar, Union, TYPE_CHECKING
 
 import aiofiles
 import attr
 from simplechrome.frame_manager import Frame
 
 if TYPE_CHECKING:
-    from ..tabs.basetab import BaseAutoTab  # noqa: F401
+    from ..tabs.basetab import Tab  # noqa: F401
 
 
 __all__ = ["Behavior", "JSBasedBehavior"]
@@ -34,7 +34,7 @@ class Behavior(ABC):
      - action loop -> while(not done): perform_action
     """
 
-    tab: "BaseAutoTab" = attr.ib()
+    tab: "Tab" = attr.ib()
     conf: Dict = attr.ib(factory=dict)
     collect_outlinks: bool = attr.ib(default=False)
     frame: Optional[Union[Frame, Callable[[], Frame]]] = attr.ib(default=None)
@@ -45,9 +45,6 @@ class Behavior(ABC):
     _did_init: bool = attr.ib(default=False, init=False)
     _resource: str = attr.ib(default="", init=False, repr=False)
     _running_task: Optional[Task] = attr.ib(default=None, init=False, repr=False)
-
-    def __attrs_post_init__(self):
-        self._pre_init = self.conf.get("pre_init", self._pre_init)
 
     @property
     def _clz_name(self) -> str:
@@ -72,22 +69,20 @@ class Behavior(ABC):
         """Does the behavior require resources to be loaded"""
         return self._has_resource
 
-    def reset(self):
-        """Reset the behavior to its initial state"""
-        self._did_init = False
-        self._done = False
-
-    def _finished(self):
-        """Sets the state of the behavior to done"""
-        self.tab.pause_behaviors()
-        self._done = True
-
     @abstractmethod
     async def perform_action(self) -> None:
         """Perform the behaviors action in the page"""
         pass
 
-    async def load_resources(self):
+    def reset(self) -> None:
+        """Reset the behavior to its initial state"""
+        self._did_init = False
+        self._done = False
+
+    def end(self) -> None:
+        self._done = True
+
+    async def load_resources(self) -> Any:
         """Load the resources required by a behavior.
 
         Behaviors that require resources, typically JS, are expected to subclass JSBasedBehavior.
@@ -134,13 +129,15 @@ class Behavior(ABC):
 
     async def run(self) -> None:
         """Run the behavior"""
+        self.tab.set_running_behavior(self)
         await self.init()
         logger.info(f"{self._clz_name}[run]: running behavior")
         while not self.done:
             await self.perform_action()
-            if self.collect_outlinks is not None:
+            if self.collect_outlinks:
                 await self.tab.collect_outlinks()
         logger.info(f"{self._clz_name}[run]: behavior done")
+        self.tab.unset_running_behavior(self)
 
     def evaluate_in_page(self, js_string: str) -> Awaitable[Any]:
         """Evaluate a string of JavaScript inside the page or frame.
@@ -155,7 +152,15 @@ class Behavior(ABC):
             return frame.evaluate_expression(js_string, withCliAPI=True)
         return self.tab.evaluate_in_page(js_string)
 
-    def __await__(self):
+    def _finished(self) -> None:
+        """Sets the state of the behavior to done"""
+        self.tab.pause_behaviors()
+        self._done = True
+
+    def __attrs_post_init__(self) -> None:
+        self._pre_init = self.conf.get("pre_init", self._pre_init)
+
+    def __await__(self) -> Any:
         return self.run().__await__()
 
 
@@ -172,7 +177,7 @@ class JSBasedBehavior(Behavior, ABC):
     _pre_init: bool = attr.ib(default=True, init=False)
     _wr_action_iter_next: ClassVar[str] = "window.$WRIteratorHandler$()"
 
-    async def pre_action_init(self):
+    async def pre_action_init(self) -> None:
         logger.info(f"{self._clz_name}[pre_action_init]: performing pre action init")
         # check if we injected our setup code or not
         # did not so inject it
