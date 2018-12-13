@@ -3,7 +3,7 @@ import logging
 
 from .basebehavior import JSBasedBehavior
 
-__all__ = ["TimelineFeedBehavior"]
+__all__ = ["TimelineFeedBehavior", "TimelineFeedNetIdle"]
 
 logger = logging.getLogger("autobrowser")
 

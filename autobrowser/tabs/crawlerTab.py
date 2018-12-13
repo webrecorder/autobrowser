@@ -195,9 +195,18 @@ class CrawlerTab(Tab):
         if not self._graceful_shutdown:
             await self.close()
 
+    def _crawl_loop_running(self) -> bool:
+        return self.crawl_loop is not None and not self.crawl_loop.done()
+
     async def close(self) -> None:
         logger.info("CrawlerTab[close]: closing")
-        if self.crawl_loop is not None and not self.crawl_loop.done():
+        if self._running_behavior is not None:
+            logger.info("CrawlerTab[close]: ending the running behavior")
+            self._running_behavior.end()
+        if self._graceful_shutdown and self._crawl_loop_running():
+            await self.crawl_loop
+            self.crawl_loop = None
+        if self._crawl_loop_running():
             self.crawl_loop.cancel()
             try:
                 await self.crawl_loop
@@ -209,11 +218,6 @@ class CrawlerTab(Tab):
     async def shutdown_gracefully(self) -> None:
         logger.info("CrawlerTab[shutdown_gracefully]: shutting down")
         self._graceful_shutdown = True
-        if self._running_behavior is not None:
-            logger.info("CrawlerTab[shutdown_gracefully]: ending the running behavior")
-            self._running_behavior.end()
-        if self.crawl_loop is not None:
-            await self.crawl_loop
         await self.close()
         logger.info("CrawlerTab[shutdown_gracefully]: shutdown complete")
 

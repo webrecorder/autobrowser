@@ -19,6 +19,7 @@ __all__ = ["LocalBrowserDiver"]
 
 
 class LocalBrowserDiver(Driver):
+    """A driver class for running an automation using browsers installed locally"""
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:

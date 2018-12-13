@@ -20,7 +20,7 @@ __all__ = [
     "INIT_BROWSER_URL",
     "GET_BROWSER_INFO_URL",
     "WAIT_TIME",
-    "ShepardDriver",
+    "ShepherdDriver",
     "SingleBrowserDriver",
     "MultiBrowserDriver",
 ]
@@ -35,7 +35,8 @@ GET_BROWSER_INFO_URL: str = "/info/{reqid}"
 WAIT_TIME: float = 0.5
 
 
-class ShepardDriver(Driver, ABC):
+class ShepherdDriver(Driver, ABC):
+    """An abstract base driver class for using browsers managed by shepherd"""
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
@@ -153,7 +154,8 @@ class ShepardDriver(Driver, ABC):
         await super().clean_up()
 
 
-class SingleBrowserDriver(ShepardDriver):
+class SingleBrowserDriver(ShepherdDriver):
+    """A driver for running an automation using a single remote browser"""
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
@@ -198,7 +200,8 @@ class SingleBrowserDriver(ShepardDriver):
         self.shutdown_condition.initiate_shutdown()
 
 
-class MultiBrowserDriver(ShepardDriver):
+class MultiBrowserDriver(ShepherdDriver):
+    """A driver for running multiple automations via multiple remote browser"""
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:

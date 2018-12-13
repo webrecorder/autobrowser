@@ -45,10 +45,7 @@ class Behavior(ABC):
     _did_init: bool = attr.ib(default=False, init=False)
     _resource: str = attr.ib(default="", init=False, repr=False)
     _running_task: Optional[Task] = attr.ib(default=None, init=False, repr=False)
-
-    @property
-    def _clz_name(self) -> str:
-        return self.__class__.__name__
+    _clz_name: str = attr.ib(init=False, default=None)
 
     @property
     def done(self) -> bool:
@@ -80,6 +77,7 @@ class Behavior(ABC):
         self._done = False
 
     def end(self) -> None:
+        """Unconditionally set the behaviors running state to done"""
         self._done = True
 
     async def load_resources(self) -> Any:
@@ -92,7 +90,8 @@ class Behavior(ABC):
     async def pre_action_init(self) -> None:
         """Perform all initialization required to run the behavior.
 
-        Behaviors that require
+        Behaviors that require so setup before performing their actions
+        should override this method in order to perform the required setup
         """
         pass
 
@@ -128,7 +127,18 @@ class Behavior(ABC):
         return self._running_task
 
     async def run(self) -> None:
-        """Run the behavior"""
+        """Run the behaviors actions.
+
+        Set the tabs running behavior at the start and
+        once the behavior is finished (performed all actions)
+        unsets the tabs running behavior.
+
+        Behaviors lifecycle represented by invoking this method:
+         - init
+         - perform action while not done
+         - call tab.collect_outlinks if collection outlinks
+         after an action was performed
+        """
         self.tab.set_running_behavior(self)
         await self.init()
         logger.info(f"{self._clz_name}[run]: running behavior")
@@ -159,6 +169,7 @@ class Behavior(ABC):
 
     def __attrs_post_init__(self) -> None:
         self._pre_init = self.conf.get("pre_init", self._pre_init)
+        self._clz_name = self.__class__.__name__
 
     def __await__(self) -> Any:
         return self.run().__await__()

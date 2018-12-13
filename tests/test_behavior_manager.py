@@ -1,6 +1,6 @@
 import pytest
 from autobrowser.behaviors.scroll import AutoScrollBehavior, ScrollBehavior
-from autobrowser.behaviors.timeline_feeds import TimelineFeedBehavior
+from autobrowser.behaviors.timeline_feeds import TimelineFeedBehavior, TimelineFeedNetIdle
 from autobrowser.behaviors.behavior_manager import (
     create_default_behavior_man,
     BehaviorManager,
@@ -31,7 +31,7 @@ def test_load_behavior_class(loadable, expected):
 class TestBehaviorManger(object):
     def test_was_created(self):
         assert BehaviorManager is not None
-        assert len(BehaviorManager.rules) > 0 and len(BehaviorManager.rules) == len(
+        assert len(BehaviorManager.matchers) > 0 and len(BehaviorManager.matchers) == len(
             self.config["matching"]
         )
         assert len(BehaviorManager.default_behavior_init) == 2
@@ -41,20 +41,20 @@ class TestBehaviorManger(object):
 
     def test_create_default_returns_same_as_default(self):
         new_instance = create_default_behavior_man()
-        assert len(BehaviorManager.rules) == len(new_instance.matchers)
+        assert len(BehaviorManager.matchers) == len(new_instance.matchers)
         assert len(BehaviorManager.default_behavior_init) == len(
             new_instance.default_behavior_init
         )
 
-        for created, new in zip(BehaviorManager.rules, new_instance.matchers):
+        for created, new in zip(BehaviorManager.matchers, new_instance.matchers):
             assert created.behavior_class == new.behavior_class
             assert created.behavior_config == new.behavior_config
-            assert created.regex.pattern == new.regex.pattern
+            assert repr(created.matcher) == repr(new.matcher)
 
     @pytest.mark.parametrize(
         "url, expected, resource",
         [
-            ("https://twitter.com/webrecorder_io", TimelineFeedBehavior, 'twitterTimeline.js'),
+            ("https://twitter.com/webrecorder_io", TimelineFeedNetIdle, 'twitterTimeline.js'),
             ("https://facebook.com", TimelineFeedBehavior, 'facebookNewsFeed.js'),
             ("https://facebook.com/abc", TimelineFeedBehavior, 'facebookUserFeed.js'),
             ("", AutoScrollBehavior, 'autoscroll.js'),
