@@ -1,20 +1,15 @@
 import asyncio
 import logging
-import sys
 import traceback
 import ujson
 from asyncio import AbstractEventLoop
-from contextlib import asynccontextmanager
-from typing import Dict, List
 
 import aioredis
 import uvloop
 from aioredis import Redis
-from cripy import Client, connect
-from urlcanon import parse_url
-from autobrowser.tabs.crawlerTab import CrawlerTab
-from autobrowser.browser import Browser
-from autobrowser.automation import AutomationInfo, ShutdownCondition
+
+from autobrowser.automation.details import build_automation_config
+from autobrowser.drivers import LocalBrowserDiver
 
 # import sys
 
@@ -72,26 +67,6 @@ DEFAULT_ARGS = [
     "--autoplay-policy=no-user-gesture-required",
     "about:blank",
 ]
-
-
-@asynccontextmanager
-async def launch_chrome(loop: AbstractEventLoop) -> Dict[str, str]:
-    proc = await asyncio.create_subprocess_exec(
-        CHROME, *DEFAULT_ARGS, stderr=asyncio.subprocess.PIPE, loop=loop
-    )
-    while True:
-        line = await proc.stderr.readline()
-        if b"DevTools listening on" in line:
-            print(f"{line}")
-            break
-    the_tab: Dict[str, str] = None
-    for tab in await Client.List():
-        if tab["type"] == "page":
-            the_tab = tab
-    if the_tab is not None:
-        yield the_tab
-    proc.terminate()
-    await proc.wait()
 
 
 dummy_auto_id = "123"
@@ -154,44 +129,34 @@ logger.setLevel(logging.DEBUG)
 # logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-class DummySDC:
-    def track_pending_task(self):
-        return lambda: None
-
-
 async def crawl_baby_crawl() -> None:
     loop: AbstractEventLoop = asyncio.get_event_loop()
-    async with launch_chrome(loop) as tab_info:
-        crawl_tab: CrawlerTab = None
-        redis: Redis = None
-        try:
-            redis: Redis = await aioredis.create_redis(
-                "redis://localhost", loop=loop, encoding="utf-8"
-            )
-            if RESET_REDIS:
-                await reset_redis(redis)
-            crawl_tab = CrawlerTab.create(
-                Browser(
-                    info=AutomationInfo(autoid=dummy_auto_id),
-                    redis=redis,
-                    loop=loop,
-                    sd_condition=DummySDC(),
-                ),
-                tab_info,
-                redis=redis,
-            )
-            await crawl_tab.init()
-            await crawl_tab.crawl_loop
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-        finally:
-            if crawl_tab:
-                await crawl_tab.close()
-            if redis:
-                redis.close()
-                await redis.wait_closed()
+    local_driver: LocalBrowserDiver = None
+    if RESET_REDIS:
+        redis: Redis = await aioredis.create_redis(
+            "redis://localhost", loop=loop, encoding="utf-8"
+        )
+        await reset_redis(redis)
+        redis.close()
+        await redis.wait_closed()
+    try:
+        local_driver = LocalBrowserDiver(
+            conf=build_automation_config(
+                autoid=dummy_auto_id,
+                chrome_opts=dict(launch=True, exe=CHROME, args=DEFAULT_ARGS),
+                tab_type="CrawlerTab",
+            ),
+            loop=loop,
+        )
+
+        await local_driver.run()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        traceback.print_exc()
+    finally:
+        if local_driver:
+            await local_driver.shutdown()
 
 
 if __name__ == "__main__":

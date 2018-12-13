@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import logging
 from importlib import import_module
 from pathlib import Path
@@ -53,7 +52,7 @@ class BehaviorMatcher(object):
     matcher: MatchRule = attr.ib(init=False)
 
     @matcher.default
-    def matcher_default(self):
+    def matcher_default(self) -> MatchRule:
         return MatchRule(**self.behavior_config.get("match"))
 
     def create_behavior(

@@ -79,6 +79,9 @@ class Behavior(ABC):
         self._did_init = False
         self._done = False
 
+    def end(self) -> None:
+        self._done = True
+
     async def load_resources(self) -> Any:
         """Load the resources required by a behavior.
 
@@ -126,6 +129,7 @@ class Behavior(ABC):
 
     async def run(self) -> None:
         """Run the behavior"""
+        self.tab.set_running_behavior(self)
         await self.init()
         logger.info(f"{self._clz_name}[run]: running behavior")
         while not self.done:
@@ -133,6 +137,7 @@ class Behavior(ABC):
             if self.collect_outlinks:
                 await self.tab.collect_outlinks()
         logger.info(f"{self._clz_name}[run]: behavior done")
+        self.tab.unset_running_behavior(self)
 
     def evaluate_in_page(self, js_string: str) -> Awaitable[Any]:
         """Evaluate a string of JavaScript inside the page or frame.

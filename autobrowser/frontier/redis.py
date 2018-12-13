@@ -21,7 +21,7 @@ def to_redis_key(aid: str) -> str:
 @attr.dataclass(slots=True)
 class RedisFrontier(object):
     redis: Redis = attr.ib(repr=False)
-    autoid: str = attr.ib(convert=to_redis_key)
+    autoid: str = attr.ib(converter=to_redis_key)
     loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
     scope: RedisScope = attr.ib(init=False)
     info_key: str = attr.ib(init=False, default=None)

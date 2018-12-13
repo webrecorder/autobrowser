@@ -3,6 +3,7 @@ __all__ = [
     "BrowserStagingError",
     "AutoBrowserError",
     "AutoTabError",
+    "DriverError",
 ]
 
 
@@ -19,4 +20,8 @@ class AutoBrowserError(Exception):
 
 
 class AutoTabError(Exception):
+    pass
+
+
+class DriverError(Exception):
     pass

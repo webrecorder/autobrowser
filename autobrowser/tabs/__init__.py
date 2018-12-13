@@ -16,7 +16,7 @@ TAB_CLASSES: Dict[str, Type[Tab]] = dict(
 
 
 async def create_tab(browser: "Browser", tab_data: Dict, **kwargs: Any) -> Tab:
-    tab = TAB_CLASSES[browser.conf.tab_type].create(
+    tab = TAB_CLASSES[browser.info.tab_type].create(
         browser=browser, tab_data=tab_data, **kwargs
     )
     await tab.init()
