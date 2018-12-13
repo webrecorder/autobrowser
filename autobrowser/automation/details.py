@@ -20,7 +20,11 @@ def build_automation_config(
     options: Optional[Dict] = None, **kwargs: Any
 ) -> AutomationConfig:
     browser_host = os.environ.get("BROWSER_HOST")
-    chrome_opts = ujson.loads(os.environ.get('CHROME_OPTS')) if "CHROME_OPTS" in os.environ else None
+    chrome_opts = (
+        ujson.loads(os.environ.get("CHROME_OPTS"))
+        if "CHROME_OPTS" in os.environ
+        else None
+    )
     conf: AutomationConfig = dict(
         redis_url=os.environ.get("REDIS_URL", "redis://localhost"),
         tab_type=os.environ.get("TAB_TYPE", "BehaviorTab"),
@@ -30,6 +34,7 @@ def build_automation_config(
         api_host=os.environ.get("SHEPARD_HOST", "http://shepherd:9020"),
         num_tabs=int(os.environ.get("NUM_TABS", 1)),
         autoid=os.environ.get("AUTO_ID"),
+        reqid=os.environ.get("REQ_ID"),
         chrome_opts=chrome_opts,
         max_behavior_time=int(os.environ.get("BEHAVIOR_RUN_TIME", 60)),
         navigation_timeout=int(os.environ.get("NAV_TO", 60)),

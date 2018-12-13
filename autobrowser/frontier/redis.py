@@ -2,7 +2,7 @@ import asyncio
 import logging
 import ujson
 from asyncio import AbstractEventLoop
-from typing import List, Awaitable, ClassVar, Dict, Union
+from typing import List, Awaitable, ClassVar, Dict, Union, Iterable
 
 import attr
 from aioredis import Redis
@@ -134,12 +134,13 @@ class RedisFrontier(object):
                 loop=self.loop,
             )
 
-    async def add_all(self, urls: List[str]) -> None:
-        """Conditionally adds a list of URLs to frontier.
+    async def add_all(self, urls: Iterable[str]) -> None:
+        """Conditionally adds URLs to frontier.
 
         The addition condition is not seen and in scope.
 
-        :param urls: The list of discovered URL to maybe add to the frontier
+        :param urls: An iterable containing URLs to be added
+        to the frontier
         """
         next_depth = self.next_depth()
         logger.info(
