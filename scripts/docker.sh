@@ -15,7 +15,7 @@ buildBehaviors () {
 
 buildBehaviorPython () {
   echo "Building docker image for python portion"
-  docker build . -t autobrowserpy:latest
+  docker build . -t webrecorder/autobrowser:latest
   echo "Built docker image for python portion"
 }
 

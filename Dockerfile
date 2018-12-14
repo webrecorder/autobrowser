@@ -1,18 +1,27 @@
+
+# build behaviors
+FROM node:10 as behaviors
+
+WORKDIR /build
+
+RUN git clone https://github.com/webrecorder/wr-behaviors
+
+WORKDIR /build/wr-behaviors
+
+RUN yarn install && yarn run build-dev
+
+
+
 FROM python:3.7.1
 
 COPY requirements.txt /temp/requirements.txt
 RUN cd /temp && pip install -r requirements.txt
 
-
-#COPY chrome-remote-interface-py /tmp/chrome-remote-interface-py
-#COPY simplechrome /tmp/simplechrome
-
-#RUN cd /tmp/chrome-remote-interface-py && python setup.py install
-#RUN cd /tmp/simplechrome && python setup.py install
-
 WORKDIR /app
 
 ADD . /app
+
+COPY --from=behaviors /build/wr-behaviors/dist /app/autobrowser/behaviors/behaviorjs
 
 CMD python -u /app/driver.py
 
