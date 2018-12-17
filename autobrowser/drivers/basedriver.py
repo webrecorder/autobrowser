@@ -19,6 +19,7 @@ class Driver(ABC):
     """Abstract base driver class that defines a common interface for all
     driver implementations and is responsible for managing the redis connection.
     """
+
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
@@ -39,7 +40,6 @@ class Driver(ABC):
         logger.info(f"{self._class_name}[init]: connecting to redis")
         self.did_init = True
         redis_url = self.conf.get("redis_url")
-        print("REDIS", redis_url)
         self.redis = await aioredis.create_redis(
             redis_url, loop=self.loop, encoding="utf-8"
         )
@@ -55,10 +55,15 @@ class Driver(ABC):
         self.redis = None
         logger.info(f"{self._class_name}[clean_up]: closed redis connection")
 
-    @abstractmethod
     async def run(self) -> None:
         """Start the driver"""
-        pass
+        logger.info(f"{self._class_name}[run]: running")
+        if not self.did_init:
+            await self.init()
+        logger.info(f"{self._class_name}[run]: waiting for shutdown")
+        await self.shutdown_condition
+        logger.info(f"{self._class_name}[run]: shutdown condition met")
+        await self.shutdown()
 
     @abstractmethod
     async def shutdown(self) -> None:

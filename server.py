@@ -2,6 +2,7 @@ from gevent import monkey; monkey.patch_all()
 from bottle import route, request, default_app, jinja2_view, debug, static_file
 from gevent.pywsgi import WSGIServer
 import redis
+import requests
 import json
 
 
@@ -30,13 +31,13 @@ class Server(object):
 
         @route('/api/autostart/<reqid>')
         def trigger_auto_start(reqid):
-            self.redis.publish('auto-event', json.dumps({'reqid': reqid, 'type': 'start'}))
-            return {}
+            return requests.post('http://shepherd:9020/api/behavior/start/' + reqid, json=request.json)
+            #self.redis.publish('auto-event', json.dumps({'reqid': reqid, 'type': 'start'}))
 
         @route('/api/autostop/<reqid>')
         def trigger_auto_stop(reqid):
-            self.redis.publish('auto-event', json.dumps({'reqid': reqid, 'type': 'stop'}))
-            return {}
+            return requests.post('http://shepherd:9020/api/behavior/stop/' + reqid, json=request.json)
+            #self.redis.publish('auto-event', json.dumps({'reqid': reqid, 'type': 'stop'}))
 
 
 # ============================================================================

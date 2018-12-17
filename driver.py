@@ -30,11 +30,13 @@ async def run_driver() -> None:
     if os.environ.get("BROWSER_HOST"):
         logger.info("run_driver: using SingleBrowserDriver")
         driver = SingleBrowserDriver(
-            conf=build_automation_config(tab_type="CrawlerTab"), loop=loop
+            conf=build_automation_config(), loop=loop
         )
     else:
-        logger.info("run_driver: using Driver")
-        driver = MultiBrowserDriver(conf=build_automation_config(), loop=loop)
+        logger.info("run_driver: using MultiBrowserDriver")
+        driver = MultiBrowserDriver(
+            conf=build_automation_config(), loop=loop
+        )
     await driver.run()
 
 

@@ -85,22 +85,13 @@ class LocalBrowserDiver(Driver):
         )
         await self.browser.init(tabs)
 
-    async def run(self) -> None:
-        logger.info("LocalBrowserDiver[run]: starting")
-        if not self.did_init:
-            await self.init()
-        logger.info("LocalBrowserDiver[run]: waiting for shutdown")
-        await self.shutdown_condition
-        logger.info(f"LocalBrowserDiver[run]: shutdown condition met")
-        await self.shutdown()
-
     async def shutdown(self) -> None:
         logger.info("LocalBrowserDiver[run]: shutting down")
         if self.browser is not None:
             await self.browser.shutdown_gracefully()
         if self.chrome_process is not None:
             try:
-                self.chrome_process.terminate()
+                self.chrome_process.kill()
                 await self.chrome_process.wait()
             except ProcessLookupError:
                 pass

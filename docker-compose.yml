@@ -21,10 +21,12 @@ services:
     image: 'redis:3.2.4'
 
   shepherd:
-    image: oldwebtoday/shepherd:v2
+    image: oldwebtoday/browser-shepherd
     environment:
       - REDIS_BROWSER_URL=redis://redis/0
       - BROWSER_NET=autobrowser_default
+      - MAIN_NET=autobrowser_default
+      - DEFAULT_FLOCK=auto-browsers-vnc
       - IDLE_TIMEOUT=600
       - CONTAINER_EXPIRE_SECS=1200
       - SCREEN_WIDTH=1280

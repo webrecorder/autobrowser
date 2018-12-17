@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import ujson
+import os
 from abc import ABC
 from asyncio import AbstractEventLoop, Task
 from typing import Optional, List, Dict, Any, Union
@@ -37,6 +38,7 @@ WAIT_TIME: float = 0.5
 
 class ShepherdDriver(Driver, ABC):
     """An abstract base driver class for using browsers managed by shepherd"""
+
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
@@ -47,6 +49,8 @@ class ShepherdDriver(Driver, ABC):
         self.session: ClientSession = ClientSession(
             json_serialize=ujson.dumps, loop=self.loop
         )
+        self.pubsub_channel: Channel = None
+        self.pubsub_task: Task = None
 
     async def stage_new_browser(
         self, browser_id: str, data: Optional[Any] = None
@@ -151,11 +155,21 @@ class ShepherdDriver(Driver, ABC):
         logger.info(f"{self._class_name}[clean_up]: closing client session")
         if self.session is not None:
             await self.session.close()
+        if self.pubsub_task and not self.pubsub_task.done():
+            self.pubsub_task.cancel()
+            try:
+                await self.pubsub_task
+            except asyncio.CancelledError:
+                pass
+            self.pubsub_task = None
+        if self.pubsub_channel is not None:
+            self.pubsub_channel.close()
         await super().clean_up()
 
 
 class SingleBrowserDriver(ShepherdDriver):
     """A driver for running an automation using a single remote browser"""
+
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
@@ -165,10 +179,6 @@ class SingleBrowserDriver(ShepherdDriver):
     async def init(self) -> None:
         logger.info(f"{self._class_name}[init]: initializing")
         await super().init()
-
-    async def run(self) -> None:
-        if not self.did_init:
-            await self.init()
         tab_datas = await self.wait_for_tabs(
             self.conf.get("browser_host_ip"), self.conf.get("num_tabs")
         )
@@ -182,10 +192,28 @@ class SingleBrowserDriver(ShepherdDriver):
         )
         self.browser.on(Browser.Events.Exiting, self.on_browser_exit)
         await self.browser.init(tab_datas)
-        logger.info("SingleBrowserDriver[run]: waiting for shutdown")
-        await self.shutdown_condition
-        logger.info("SingleBrowserDriver[run]: shutdown condition met")
-        await self.shutdown()
+        self.pubsub_task = self.loop.create_task(self.pubsub_loop())
+
+    async def get_auto_event_channel(self) -> Channel:
+        channels = await self.redis.subscribe(
+            "wr.auto-event:{reqid}".format(reqid=self.conf.get("reqid", ""))
+        )
+        return channels[0]
+
+    async def pubsub_loop(self) -> None:
+        self.pubsub_channel = await self.get_auto_event_channel()
+        logger.debug("pubsub loop started")
+
+        while await self.pubsub_channel.wait_message():
+            msg = await self.pubsub_channel.get(encoding="utf-8", decoder=ujson.loads)
+            logger.debug(f"{self._class_name}[pubsub_loop]: got message {msg}")
+            if msg["cmd"] == "start":
+                if not self.browser.running:
+                    await self.browser.reinit()
+
+            elif msg["cmd"] == "stop":
+                if self.browser.running:
+                    await self.browser.shutdown_gracefully()
 
     async def shutdown(self) -> None:
         logger.info("SingleBrowserDriver[shutdown]: shutting down")
@@ -195,32 +223,33 @@ class SingleBrowserDriver(ShepherdDriver):
         logger.info("SingleBrowserDriver[shutdown]: exiting")
 
     def on_browser_exit(self, info: AutomationInfo) -> None:
-        logging.info(f"SingleBrowserDriver[on_browser_exit(info={info})]: The browser exited")
+        logging.info(
+            f"SingleBrowserDriver[on_browser_exit(info={info})]: The browser exited"
+        )
         self.browser.remove_all_listeners()
         self.shutdown_condition.initiate_shutdown()
 
 
 class MultiBrowserDriver(ShepherdDriver):
     """A driver for running multiple automations via multiple remote browser"""
+
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
         super().__init__(conf, loop)
         self.browsers: Dict[str, Browser] = dict()
-        self.ae_channel: Channel = None
-        self.pubsub_task: Task = None
 
     async def get_auto_event_channel(self) -> Channel:
         channels = await self.redis.subscribe("auto-event")
         return channels[0]
 
     async def pubsub_loop(self) -> None:
-        while await self.ae_channel.wait_message():
-            msg = await self.ae_channel.get(encoding="utf-8", decoder=ujson.loads)
+        while await self.pubsub_channel.wait_message():
+            msg = await self.pubsub_channel.get(encoding="utf-8", decoder=ujson.loads)
             logger.debug(f"{self._class_name}[pubsub_loop]: got message {msg}")
-            if msg["type"] == "start":
+            if msg["cmd"] == "start":
                 await self.add_browser(msg["reqid"])
-            elif msg["type"] == "stop":
+            elif msg["cmd"] == "stop":
                 await self.remove_browser(msg["reqid"])
 
     async def add_browser(self, reqid) -> None:
@@ -241,6 +270,7 @@ class MultiBrowserDriver(ShepherdDriver):
                     self.conf.get("browser_id"), self.conf.get("cdata")
                 )
                 tab_datas = results["tab_datas"]
+
             browser = Browser(
                 info=AutomationInfo(
                     reqid=reqid,
@@ -251,6 +281,7 @@ class MultiBrowserDriver(ShepherdDriver):
                 redis=self.redis,
                 sd_condition=self.shutdown_condition,
             )
+
             await browser.init(tab_datas)
             self.browsers[reqid] = browser
             browser.on(Browser.Events.Exiting, self.on_browser_exit)
@@ -266,27 +297,8 @@ class MultiBrowserDriver(ShepherdDriver):
     async def init(self) -> None:
         logger.info("MultiBrowserDriver[init]: initializing")
         await super().init()
-        self.ae_channel = await self.get_auto_event_channel()
+        self.pubsub_channel = await self.get_auto_event_channel()
         self.pubsub_task = self.loop.create_task(self.pubsub_loop())
-
-    async def run(self) -> None:
-        logger.info("MultiBrowserDriver[run]: running")
-        if not self.did_init:
-            await self.init()
-        logger.info("MultiBrowserDriver[run]: waiting for shutdown")
-        await self.shutdown_condition
-        logger.info("MultiBrowserDriver[run]: shutdown condition met")
-        await self.shutdown()
-
-    async def clean_up(self) -> None:
-        logger.info("MultiBrowserDriver[clean_up]: cleaning up")
-        self.pubsub_task.cancel()
-        try:
-            await self.pubsub_task
-        except asyncio.CancelledError:
-            pass
-        self.ae_channel.close()
-        await super().clean_up()
 
     async def shutdown(self) -> None:
         logger.info("MultiBrowserDriver[shutdown]: shutting down")
@@ -307,4 +319,3 @@ class MultiBrowserDriver(ShepherdDriver):
         if len(self.browsers) == 0:
             logging.info(f"{sig}: no more active browsers, shutting down")
             self.shutdown_condition.initiate_shutdown()
-

@@ -23,7 +23,7 @@ class RedisFrontier(object):
     redis: Redis = attr.ib(repr=False)
     autoid: str = attr.ib(converter=to_redis_key)
     loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
-    scope: RedisScope = attr.ib(init=False)
+    scope: RedisScope = attr.ib(init=False, default=None)
     info_key: str = attr.ib(init=False, default=None)
     q_key: str = attr.ib(init=False, default=None)
     pending_key: str = attr.ib(init=False, default=None)
@@ -32,11 +32,6 @@ class RedisFrontier(object):
     currently_crawling: Dict[str, Union[str, int]] = attr.ib(init=False, default=None)
 
     CRAWL_DEPTH_FIELD: ClassVar[str] = "crawl_depth"
-
-    @scope.default
-    def scope_init(self) -> RedisScope:
-        """Default value for our scope attribute"""
-        return RedisScope(self.redis, self.autoid)
 
     async def wait_for_populated_q(self, wait_time: Union[int, float] = 60) -> None:
         """Waits for the q to become populated by polling exhausted at wait_time intervals.
@@ -174,3 +169,4 @@ class RedisFrontier(object):
         self.q_key = f"{self.autoid}:q"
         self.pending_key = f"{self.autoid}:qp"
         self.seen_key = f"{self.autoid}:seen"
+        self.scope = RedisScope(self.redis, self.autoid)
