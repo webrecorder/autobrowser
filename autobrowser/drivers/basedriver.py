@@ -40,7 +40,7 @@ class Driver(ABC):
         logger.info(f"{self._class_name}[init]: connecting to redis")
         self.did_init = True
         redis_url = self.conf.get("redis_url")
-        self.redis = await aioredis.create_redis(
+        self.redis = await aioredis.create_redis_pool(
             redis_url, loop=self.loop, encoding="utf-8"
         )
         logger.info(f"{self._class_name}[init]: connected to redis")
