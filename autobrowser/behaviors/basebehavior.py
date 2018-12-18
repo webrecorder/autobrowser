@@ -139,9 +139,9 @@ class Behavior(ABC):
          - call tab.collect_outlinks if collection outlinks
          after an action was performed
         """
-        self.tab.set_running_behavior(self)
         await self.init()
         logger.info(f"{self._clz_name}[run]: running behavior")
+        self.tab.set_running_behavior(self)
         while not self.done:
             await self.perform_action()
             if self.collect_outlinks:
@@ -164,7 +164,6 @@ class Behavior(ABC):
 
     def _finished(self) -> None:
         """Sets the state of the behavior to done"""
-        #self.tab.pause_behaviors()
         self._done = True
 
     def __attrs_post_init__(self) -> None:

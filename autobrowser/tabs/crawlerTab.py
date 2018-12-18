@@ -57,9 +57,7 @@ class CrawlerTab(Tab):
     def main_frame(self) -> Frame:
         return self.frame_manager.mainFrame
 
-    async def goto(
-        self, url: str, wait: str = "networkidle2", **kwargs: Any
-    ) -> bool:
+    async def goto(self, url: str, wait: str = "load", **kwargs: Any) -> bool:
         """Navigate the browser to the supplied URL.
 
         :param url: The URL of the page to navigate to
@@ -80,12 +78,6 @@ class CrawlerTab(Tab):
             return True
         return False
 
-    async def _report_initial_fstate(self) -> None:
-        frontier_state = "" if await self.frontier.exhausted() else "not"
-        logger.info(
-            f"CrawlerTab[crawl]: crawl loop starting and the frontier is {frontier_state} exhausted"
-        )
-
     async def collect_outlinks(self) -> None:
         try:
             out_links = await self.main_frame.evaluate_expression(
@@ -93,7 +85,8 @@ class CrawlerTab(Tab):
             )
         except Exception as e:
             logger.error(
-                f"CrawlerTab[collect_outlinks]: mainFrame.evaluate_expression threw an error falling back to evaluate_in_page. {e}"
+                f"CrawlerTab[collect_outlinks]: mainFrame.evaluate_expression threw an error "
+                f"falling back to evaluate_in_page. {e}"
             )
             out_links = await self.evaluate_in_page(self.outlink_expression)
         logger.info(f"CrawlerTab[crawl]: collected outlinks")
@@ -119,23 +112,23 @@ class CrawlerTab(Tab):
         # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
         # after any redirects happen
         self._url = self.main_frame.url
-        behavior = BehaviorManager.behavior_for_url(self.main_frame.url, self, collect_outlinks=True)
+        behavior = BehaviorManager.behavior_for_url(
+            self.main_frame.url, self, collect_outlinks=True
+        )
         logger.info(f"CrawlerTab[crawl]: running behavior {behavior}")
         # we have a behavior to be run so run it
         if behavior is not None:
             # run the behavior in a timed fashion (async_timeout will cancel the corutine if max time is reached)
-            if self._max_behavior_time != -1:
-                try:
+            try:
+                if self._max_behavior_time != -1:
                     async with timeout(self._max_behavior_time, loop=self.loop):
                         await behavior.run()
-                except TimeoutError:
-                    logger.info("CrawlerTab[crawl]: timed behavior to")
-                    pass
-            else:
-                try:
+                else:
                     await behavior.run()
-                except Exception as e:
-                    logger.error(f"CrawlerTab[crawl]: behavior threw an error {e}")
+            except TimeoutError:
+                logger.info("CrawlerTab[crawl]: timed behavior to")
+            except Exception as e:
+                logger.error(f"CrawlerTab[crawl]: behavior threw an error {e}")
 
     async def init(self) -> None:
         """Initialize the crawler tab, if the crawler tab is already
@@ -166,7 +159,10 @@ class CrawlerTab(Tab):
         logger.info("CrawlerTab[init]: initialized")
 
     async def crawl(self) -> None:
-        await self._report_initial_fstate()
+        frontier_state = "" if await self.frontier.exhausted() else "not"
+        logger.info(
+            f"CrawlerTab[crawl]: crawl loop starting and the frontier is {frontier_state} exhausted"
+        )
         # loop until frontier is exhausted
         while not await self.frontier.exhausted():
             if self._graceful_shutdown:
@@ -194,9 +190,6 @@ class CrawlerTab(Tab):
         logger.info("CrawlerTab[crawl]: crawl is finished")
         if not self._graceful_shutdown:
             await self.close()
-
-    def _crawl_loop_running(self) -> bool:
-        return self.crawl_loop is not None and not self.crawl_loop.done()
 
     async def close(self) -> None:
         logger.info("CrawlerTab[close]: closing")
@@ -239,3 +232,6 @@ class CrawlerTab(Tab):
                 await self.client.Runtime.releaseObject(objectId=obj_id)
         await self.client.DOM.disable()
         await self.frontier.add_all(out_links)
+
+    def _crawl_loop_running(self) -> bool:
+        return self.crawl_loop is not None and not self.crawl_loop.done()

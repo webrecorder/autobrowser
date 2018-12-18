@@ -4,7 +4,7 @@ import asyncio
 import logging
 from abc import ABCMeta, abstractmethod
 from asyncio import Task, AbstractEventLoop
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, ClassVar
+from typing import Optional, Dict, Any, TYPE_CHECKING, ClassVar
 
 import attr
 from aioredis import Redis
@@ -12,7 +12,6 @@ from cripy import Client, connect
 from pyee import EventEmitter
 
 from autobrowser.automation import ShutdownCondition
-from autobrowser.behaviors import BehaviorManager
 from autobrowser.behaviors.basebehavior import Behavior
 from autobrowser.util.netidle import monitor
 
@@ -26,8 +25,8 @@ logger = logging.getLogger("autobrowser")
 
 @attr.dataclass(frozen=True)
 class TabEvents(object):
-    Crashed: str = attr.ib(default='Tab:Crashed')
-    ConnectionClosed: str = attr.ib(default='Tab:ConnectionClosed')
+    Crashed: str = attr.ib(default="Tab:Crashed")
+    ConnectionClosed: str = attr.ib(default="Tab:ConnectionClosed")
 
 
 class Tab(EventEmitter, metaclass=ABCMeta):
@@ -43,28 +42,24 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         sd_condition: Optional[ShutdownCondition] = None,
         **kwargs,
     ) -> None:
-        if browser is not None:
-            loop: AbstractEventLoop = browser.loop
-        else:
-            loop: AbstractEventLoop = asyncio.get_event_loop()
-        super().__init__(loop=loop)
+        super().__init__(
+            loop=browser.loop if browser is not None else asyncio.get_event_loop()
+        )
         self.browser: "Browser" = browser
         self.redis = redis
         self.tab_data: Dict[str, str] = tab_data
         self.client: Client = None
-        self.behaviors: List[Behavior] = []
-        self.all_behaviors: Optional[Task] = None
         self.target_info: Optional[Dict] = None
         self.sd_condition = sd_condition
+        self._behavior_run_task: Optional[Task] = None
+        self._running_behavior: Optional[Behavior] = None
         self._url: str = self.tab_data["url"]
         self._id: str = self.tab_data["id"]
         self._behaviors_paused: bool = False
         self._running: bool = False
         self._reconnecting: bool = False
         self._reconnect_promise: Optional[Task] = None
-        self._behavior: Optional[Behavior] = None
         self._graceful_shutdown: bool = False
-        self._running_behavior: Optional[Behavior] = None
         self._clz_name = self.__class__.__name__
 
     @property
@@ -96,13 +91,6 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         """Is this tab attempting to reconnect to the tab"""
         return self._running and self._reconnecting
 
-    def add_behavior(self, behavior: Behavior) -> None:
-        """A Page behavior to the list of behaviors to be run per page
-
-        :param behavior: The behavior to be added
-        """
-        self.behaviors.append(behavior)
-
     def set_running_behavior(self, behavior: Behavior) -> None:
         self._running_behavior = behavior
 
@@ -118,16 +106,6 @@ class Tab(EventEmitter, metaclass=ABCMeta):
     async def resume_behaviors(self) -> None:
         """Sets the behaviors paused flag to false"""
         await self.evaluate_in_page("window.$WBBehaviorPaused = false;")
-
-        # if no behavior running, restart behavior for current page
-        if not self._running_behavior or self._running_behavior.done:
-            logger.debug(f'Restarting behavior')
-            url = await self.evaluate_in_page("window.location.href")
-            logger.debug(f'Behavior url: {url}')
-            behavior = BehaviorManager.behavior_for_url(url, self)
-            self.behaviors = [behavior]
-            self.all_behaviors = self._loop.create_task(self._behavior_loop())
-
         self._behaviors_paused = False
 
     def stop_reconnecting(self) -> None:
@@ -243,7 +221,7 @@ class Tab(EventEmitter, metaclass=ABCMeta):
             self.client.Page.enable(),
             self.client.Network.enable(),
             self.client.Runtime.enable(),
-            loop=self.loop
+            loop=self.loop,
         )
 
         logger.info(f"{self._clz_name}[init]: enabled domains")
@@ -288,11 +266,15 @@ class Tab(EventEmitter, metaclass=ABCMeta):
 
     def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         self.emit(self.Events.Crashed, self.tab_id)
-        logger.critical(f"{self._clz_name}[_on_inspector_crashed]: target Crashed {args[0]}")
+        logger.critical(
+            f"{self._clz_name}[_on_inspector_crashed]: target Crashed {args[0]}"
+        )
 
     def _on_connection_closed(self) -> None:
         if self._running:
-            logger.critical(f"{self._clz_name}<url={self._url}>[_on_connection_closed]: connection closed while running")
+            logger.critical(
+                f"{self._clz_name}<url={self._url}>[_on_connection_closed]: connection closed while running"
+            )
             self.emit(self.Events.ConnectionClosed, self.tab_id)
 
     def __str__(self) -> str:

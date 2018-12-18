@@ -37,7 +37,7 @@ def build_automation_config(
         reqid=os.environ.get("REQ_ID"),
         chrome_opts=chrome_opts,
         max_behavior_time=int(os.environ.get("BEHAVIOR_RUN_TIME", 60)),
-        navigation_timeout=int(os.environ.get("NAV_TO", 60)),
+        navigation_timeout=int(os.environ.get("NAV_TO", 30)),
         net_cache_disabled=bool(os.environ.get("CRAWL_NO_NETCACHE")),
         wait_for_q=bool(os.environ.get("WAIT_FOR_Q")),
     )
@@ -68,7 +68,7 @@ class AutomationInfo(object):
         default=int(os.environ.get("BEHAVIOR_RUN_TIME", 60)), repr=False
     )
     navigation_timeout: int = attr.ib(
-        default=int(os.environ.get("NAV_TO", 60)), repr=False
+        default=int(os.environ.get("NAV_TO", 30)), repr=False
     )
     net_cache_disabled: bool = attr.ib(
         default=bool(os.environ.get("CRAWL_NO_NETCACHE")), repr=False
