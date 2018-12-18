@@ -4,7 +4,7 @@ FROM node:10 as behaviors
 
 WORKDIR /build
 
-RUN git clone https://github.com/webrecorder/wr-behaviors
+RUN git clone -b make-pausable https://github.com/webrecorder/wr-behaviors
 
 WORKDIR /build/wr-behaviors
 

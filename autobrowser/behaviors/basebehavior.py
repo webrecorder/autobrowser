@@ -164,7 +164,7 @@ class Behavior(ABC):
 
     def _finished(self) -> None:
         """Sets the state of the behavior to done"""
-        self.tab.pause_behaviors()
+        #self.tab.pause_behaviors()
         self._done = True
 
     def __attrs_post_init__(self) -> None:

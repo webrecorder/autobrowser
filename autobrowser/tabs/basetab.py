@@ -12,6 +12,7 @@ from cripy import Client, connect
 from pyee import EventEmitter
 
 from autobrowser.automation import ShutdownCondition
+from autobrowser.behaviors import BehaviorManager
 from autobrowser.behaviors.basebehavior import Behavior
 from autobrowser.util.netidle import monitor
 
@@ -109,12 +110,24 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         if self._running_behavior and behavior is self._running_behavior:
             self._running_behavior = None
 
-    def pause_behaviors(self) -> None:
+    async def pause_behaviors(self) -> None:
         """Sets the behaviors paused flag to true"""
+        await self.evaluate_in_page("window.$WBBehaviorPaused = true;")
         self._behaviors_paused = True
 
-    def resume_behaviors(self) -> None:
+    async def resume_behaviors(self) -> None:
         """Sets the behaviors paused flag to false"""
+        await self.evaluate_in_page("window.$WBBehaviorPaused = false;")
+
+        # if no behavior running, restart behavior for current page
+        if not self._running_behavior or self._running_behavior.done:
+            logger.debug(f'Restarting behavior')
+            url = await self.evaluate_in_page("window.location.href")
+            logger.debug(f'Behavior url: {url}')
+            behavior = BehaviorManager.behavior_for_url(url, self)
+            self.behaviors = [behavior]
+            self.all_behaviors = self._loop.create_task(self._behavior_loop())
+
         self._behaviors_paused = False
 
     def stop_reconnecting(self) -> None:

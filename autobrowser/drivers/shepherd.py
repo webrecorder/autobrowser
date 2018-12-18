@@ -207,11 +207,16 @@ class SingleBrowserDriver(ShepherdDriver):
         while await self.pubsub_channel.wait_message():
             msg = await self.pubsub_channel.get(encoding="utf-8", decoder=ujson.loads)
             logger.debug(f"{self._class_name}[pubsub_loop]: got message {msg}")
-            if msg["cmd"] == "start":
-                if not self.browser.running:
-                    await self.browser.reinit()
 
-            elif msg["cmd"] == "stop":
+            if msg["cmd"] == "stop":
+                for tab in self.browser.tabs.values():
+                    await tab.pause_behaviors()
+
+            elif msg["cmd"] == "start":
+                for tab in self.browser.tabs.values():
+                    await tab.resume_behaviors()
+
+            elif msg["cmd"] == "shutdown":
                 if self.browser.running:
                     await self.browser.shutdown_gracefully()
 
