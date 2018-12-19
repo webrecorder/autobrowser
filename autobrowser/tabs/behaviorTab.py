@@ -21,13 +21,18 @@ class BehaviorTab(Tab):
 
     async def resume_behaviors(self) -> None:
         await super().resume_behaviors()
+
+        url = await self.evaluate_in_page("window.location.href")
+        logger.debug(f"BehaviorTab: resuming behavior, url = {url}")
+
         # if no behavior running, restart behavior for current page
-        if not self._running_behavior or self._running_behavior.done:
-            logger.debug(f"BehaviorTab: Restarting behavior")
-            url = await self.evaluate_in_page("window.location.href")
-            logger.debug(f"BehaviorTab: behavior url = {url}")
+        if not self._running_behavior or self._running_behavior.done or url != self._curr_behavior_url:
+            logger.debug(f"BehaviorTab: Canceling existing behavior")
             await self._ensure_behavior_run_task_end()
-            behavior = BehaviorManager.behavior_for_url(url, self)
+            self._curr_behavior_url = url
+            logger.debug(f"BehaviorTab: Restarting behavior")
+
+            behavior = BehaviorManager.behavior_for_url(self._curr_behavior_url, self)
             self.set_running_behavior(behavior)
             self._behavior_run_task = self.loop.create_task(behavior.run())
 
@@ -35,7 +40,11 @@ class BehaviorTab(Tab):
         if self._running:
             return
         await super().init()
-        behavior = BehaviorManager.behavior_for_url(self.tab_data.get("url"), self)
+
+        self._curr_behavior_url = self.tab_data.get("url")
+
+        behavior = BehaviorManager.behavior_for_url(self._curr_behavior_url, self)
+        self.set_running_behavior(behavior)
         self._behavior_run_task = self.loop.create_task(behavior.run())
 
     async def close(self) -> None:

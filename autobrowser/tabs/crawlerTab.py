@@ -5,7 +5,7 @@ from typing import List, Optional, Any, Callable
 
 import aiofiles
 from async_timeout import timeout
-from simplechrome.errors import NavigationError
+from simplechrome.errors import NavigationError, NavigationTimeoutError
 from simplechrome.frame_manager import FrameManager, Frame
 
 from autobrowser.behaviors import BehaviorManager
@@ -71,11 +71,17 @@ class CrawlerTab(Tab):
             await self.main_frame.goto(
                 url, waitUntil=wait, timeout=self._navigation_timeout, **kwargs
             )
-        except NavigationError as ne:
+        except (NavigationError, NavigationTimeoutError) as ne:
             logger.exception(
                 f"CrawlerTab[goto]: navigation error for {url}, error msg = {ne}"
             )
             return True
+        except e:
+            logger.error(
+                f"CrawlerTab[goto]: unknown error while navigating: {e}"
+            )
+            return True
+
         return False
 
     async def collect_outlinks(self) -> None:
@@ -154,7 +160,7 @@ class CrawlerTab(Tab):
             await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
         await self.frontier.init()
         if self.browser.info.wait_for_q:
-            await self.frontier.wait_for_populated_q()
+            await self.frontier.wait_for_populated_q(self.browser.info.wait_for_q)
         self.crawl_loop = self.loop.create_task(self.crawl())
         logger.info("CrawlerTab[init]: initialized")
 

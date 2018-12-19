@@ -15,7 +15,7 @@ logger = logging.getLogger("autobrowser")
 
 
 def to_redis_key(aid: str) -> str:
-    return f"{aid}: scope"
+    return f"{aid}:scope"
 
 
 @attr.dataclass(slots=True)
@@ -33,6 +33,7 @@ class RedisScope(object):
         """
         for scope_str in await self.redis.smembers(self.scope_key):
             scope = ujson.loads(scope_str)
+            logger.info(f"RedisScope scope_str: {scope_str}")
             self.rules.append(MatchRule(**scope))
         num_rules = len(self.rules)
         self.all_links = num_rules == 0

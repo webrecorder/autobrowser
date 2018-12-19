@@ -39,7 +39,7 @@ def build_automation_config(
         max_behavior_time=int(os.environ.get("BEHAVIOR_RUN_TIME", 60)),
         navigation_timeout=int(os.environ.get("NAV_TO", 30)),
         net_cache_disabled=bool(os.environ.get("CRAWL_NO_NETCACHE")),
-        wait_for_q=bool(os.environ.get("WAIT_FOR_Q")),
+        wait_for_q=int(os.environ.get("WAIT_FOR_Q", 0)),
     )
 
     if options is not None:
@@ -73,4 +73,6 @@ class AutomationInfo(object):
     net_cache_disabled: bool = attr.ib(
         default=bool(os.environ.get("CRAWL_NO_NETCACHE")), repr=False
     )
-    wait_for_q: bool = attr.ib(default=bool(os.environ.get("WAIT_FOR_Q")), repr=False)
+    wait_for_q: int = attr.ib(
+        default=int(os.environ.get("WAIT_FOR_Q", 0)), repr=False
+    )
