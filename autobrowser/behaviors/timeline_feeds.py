@@ -34,6 +34,6 @@ class TimelineFeedNetIdle(JSBasedBehavior):
             logger.info(
                 f"TimelineFeedBehavior[perform_action]: waiting for network idle"
             )
-            await self.tab.net_idle(global_wait=10)
+            await self.tab.net_idle(global_wait=30)
         elif done:
             self._finished()

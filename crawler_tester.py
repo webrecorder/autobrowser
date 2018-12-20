@@ -8,22 +8,7 @@ import aioredis
 import uvloop
 from aioredis import Redis
 
-from autobrowser.automation.details import build_automation_config
-from autobrowser.drivers import LocalBrowserDiver
-
-# import sys
-
-try:
-    from asyncio.runners import run as aiorun
-except ImportError:
-
-    def aiorun(coro, debug=False) -> None:
-        loop = asyncio.get_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
-
+from autobrowser import build_automation_config, LocalBrowserDiver, run_automation
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -129,7 +114,7 @@ logger.setLevel(logging.DEBUG)
 # logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
-async def crawl_baby_crawl() -> None:
+async def crawl_baby_crawl() -> int:
     loop: AbstractEventLoop = asyncio.get_event_loop()
     local_driver: LocalBrowserDiver = None
     if RESET_REDIS:
@@ -149,15 +134,11 @@ async def crawl_baby_crawl() -> None:
             loop=loop,
         )
 
-        await local_driver.run()
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        traceback.print_exc()
+        return await local_driver.run()
     finally:
         if local_driver:
-            await local_driver.shutdown()
+            return await local_driver.shutdown()
 
 
 if __name__ == "__main__":
-    aiorun(crawl_baby_crawl())
+    run_automation(crawl_baby_crawl())

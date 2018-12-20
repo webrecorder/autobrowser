@@ -1,10 +1,9 @@
+import asyncio
 import signal
 from asyncio import AbstractEventLoop, Event
-from typing import Any, Callable
+from typing import Any
 
 import attr
-
-from autobrowser.util.helper import Helper
 
 __all__ = ["ShutdownCondition"]
 
@@ -19,35 +18,31 @@ class ShutdownCondition(object):
       - when all Tabs controlled by the driver have finished their task.
     """
 
-    loop: AbstractEventLoop = attr.ib(default=None, converter=Helper.ensure_loop)
-    _pending_tasks: int = attr.ib(init=False, default=0)
+    loop: AbstractEventLoop = attr.ib(default=None)
     _shutdown_event: Event = attr.ib(init=False, default=None)
-
-    @property
-    def pending_tasks(self) -> int:
-        return self._pending_tasks
+    _shutdown_from_signal: bool = attr.ib(init=False, default=False)
 
     @property
     def shutdown_condition_met(self) -> bool:
-        return self._shutdown_event.is_set() and self._pending_tasks == 0
+        return self._shutdown_event.is_set()
+
+    @property
+    def shutdown_from_signal(self) -> bool:
+        return self._shutdown_from_signal
 
     def initiate_shutdown(self) -> None:
         if not self._shutdown_event.is_set():
             self._shutdown_event.set()
 
-    def track_pending_task(self) -> Callable[[], None]:
-        self._pending_tasks += 1
-        return self._finished_task
-
-    def _finished_task(self) -> None:
-        if self._pending_tasks != 0:
-            self._pending_tasks -= 1
-            if self._pending_tasks == 0:
-                self.initiate_shutdown()
+    def _initiate_shutdown_signal(self) -> None:
+        if not self._shutdown_event.is_set():
+            self._shutdown_event.set()
 
     def __await__(self) -> Any:
         return self.loop.create_task(self._shutdown_event.wait()).__await__()
 
     def __attrs_post_init__(self) -> None:
+        if self.loop is None:
+            self.loop = asyncio.get_event_loop()
         self._shutdown_event = Event(loop=self.loop)
-        self.loop.add_signal_handler(signal.SIGTERM, self.initiate_shutdown)
+        self.loop.add_signal_handler(signal.SIGTERM, self._initiate_shutdown_signal)

@@ -3,14 +3,19 @@ import logging
 from asyncio import AbstractEventLoop
 from asyncio.subprocess import Process
 from typing import Optional, Dict, List
+from collections import Counter
 
 from async_timeout import timeout
-from cripy import Client, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_URL
+from cripy import CDP, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_URL
 
-from autobrowser.automation import AutomationInfo
+from autobrowser.automation import (
+    AutomationConfig,
+    AutomationInfo,
+    BrowserExitInfo,
+    exit_code_from_reason,
+)
 from autobrowser.browser import Browser
 from autobrowser.errors import DriverError
-from autobrowser.automation import AutomationConfig
 from .basedriver import Driver
 
 logger = logging.getLogger("autobrowser")
@@ -20,6 +25,7 @@ __all__ = ["LocalBrowserDiver"]
 
 class LocalBrowserDiver(Driver):
     """A driver class for running an automation using browsers installed locally"""
+
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
@@ -39,11 +45,11 @@ class LocalBrowserDiver(Driver):
     async def get_tabs(self) -> List[Dict[str, str]]:
         tabs: List[Dict[str, str]] = []
         connect_opts = self._make_connect_opts()
-        for tab in await Client.List(**connect_opts):
+        for tab in await CDP.List(**connect_opts):
             if tab["type"] == "page" and "webSocketDebuggerUrl" in tab:
                 tabs.append(tab)
         for _ in range(self.conf.get("num_tabs") - 1):
-            tab = await Client.New(**connect_opts)
+            tab = await CDP.New(**connect_opts)
             tabs.append(tab)
         return tabs
 
@@ -69,11 +75,11 @@ class LocalBrowserDiver(Driver):
                 async with timeout(60):
                     await self.launch_browser()
             except asyncio.TimeoutError:
-                await self.shutdown()
+                await self.clean_up()
                 raise DriverError("Failed To Launch The Browser Within 60 seconds")
         tabs = await self.get_tabs()
         if len(tabs) == 0:
-            await self.shutdown()
+            await self.clean_up()
             raise DriverError("No Tabs Were Found To Connect To")
         self.browser = Browser(
             info=AutomationInfo(
@@ -81,24 +87,34 @@ class LocalBrowserDiver(Driver):
             ),
             loop=self.loop,
             redis=self.redis,
-            sd_condition=self.shutdown_condition,
         )
         await self.browser.init(tabs)
 
-    async def shutdown(self) -> None:
-        logger.info("LocalBrowserDiver[run]: shutting down")
+    async def clean_up(self) -> None:
         if self.browser is not None:
-            await self.browser.shutdown_gracefully()
+            await self.gracefully_shutdown_browser(self.browser)
+            self.browser = None
+
         if self.chrome_process is not None:
             try:
                 self.chrome_process.kill()
                 await self.chrome_process.wait()
             except ProcessLookupError:
                 pass
+            self.chrome_process = None
         await super().clean_up()
+
+    async def shutdown(self) -> int:
+        logger.info("LocalBrowserDiver[run]: shutting down")
+        await self.clean_up()
         logger.info("LocalBrowserDiver[run]: shutdown complete")
+        return self.determine_exit_code()
 
-    def on_browser_exit(self, info: AutomationInfo) -> None:
-        logger.info(f"LocalBrowserDiver[on_browser_exit(info={info})]: browser exited shutting down")
+    def on_browser_exit(self, info: BrowserExitInfo) -> None:
+        logger.info(
+            f"LocalBrowserDiver[on_browser_exit(info={info})]: browser exited shutting down"
+        )
+        self.browser.remove_all_listeners()
+        self.browser = None
+        self._browser_exit_infos.append(info)
         self.shutdown_condition.initiate_shutdown()
-

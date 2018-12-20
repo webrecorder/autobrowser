@@ -15,8 +15,14 @@ buildBehaviors () {
 
 buildBehaviorPython () {
   echo "Building docker image for python portion"
-  docker build . -t webrecorder/autobrowser:latest
+  docker build . --no-cache -t webrecorder/autobrowser:latest
   echo "Built docker image for python portion"
+}
+
+buildDriver () {
+  echo "Building the driver part of the python portion"
+  docker build . --target driver -t webrecorder/autobrowser:latest
+  echo "Building the driver part of the python portion"
 }
 
 case "$1" in
@@ -30,6 +36,10 @@ case "$1" in
 
     "py"*)
      buildBehaviorPython
+    ;;
+
+    "driver"*)
+    buildDriver
     ;;
 
     *)

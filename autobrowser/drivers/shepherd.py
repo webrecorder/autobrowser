@@ -1,15 +1,14 @@
 import asyncio
 import logging
 import ujson
-import os
 from abc import ABC
 from asyncio import AbstractEventLoop, Task
 from typing import Optional, List, Dict, Any, Union
 
-from aiohttp import ClientSession
+from aiohttp import ClientSession, TCPConnector, AsyncResolver
 from aioredis import Channel
 
-from autobrowser.automation import AutomationConfig, AutomationInfo
+from autobrowser.automation import AutomationConfig, AutomationInfo, BrowserExitInfo
 from autobrowser.browser import Browser
 from autobrowser.errors import BrowserStagingError
 from .basedriver import Driver
@@ -47,7 +46,9 @@ class ShepherdDriver(Driver, ABC):
         self.request_new_browser_url: str = self.conf["api_host"] + REQ_BROWSER_URL
         self.init_browser_url: str = self.conf["api_host"] + INIT_BROWSER_URL
         self.session: ClientSession = ClientSession(
-            json_serialize=ujson.dumps, loop=self.loop
+            connector=TCPConnector(resolver=AsyncResolver(loop=loop), loop=loop),
+            json_serialize=ujson.dumps,
+            loop=loop,
         )
         self.pubsub_channel: Channel = None
         self.pubsub_task: Task = None
@@ -55,10 +56,10 @@ class ShepherdDriver(Driver, ABC):
     async def stage_new_browser(
         self, browser_id: str, data: Optional[Any] = None
     ) -> str:
-        response = await self.session.post(
+        async with self.session.post(
             self.request_new_browser_url.format(browser=browser_id), data=data
-        )
-        json = await response.json()  # type: Dict[str, str]
+        ) as response:
+            json = await response.json()  # type: Dict[str, str]
         reqid = json.get("reqid")
         if reqid is None:
             raise BrowserStagingError(f"Could not stage browser with id = {browser_id}")
@@ -69,24 +70,24 @@ class ShepherdDriver(Driver, ABC):
     ) -> Optional[Dict[str, Union[str, List[Dict[str, str]]]]]:
         reqid = await self.stage_new_browser(browser_id, data)
         while True:
-            response = await self.session.get(
+            async with self.session.get(
                 self.init_browser_url.format(reqid=reqid),
                 headers=dict(Host="localhost"),
-            )
-            try:
-                data = await response.json()
-            except Exception as e:
+            ) as response:
+                try:
+                    data = await response.json()
+                except Exception as e:
+                    logger.info(
+                        f"{self._class_name}[init_new_browser]: Browser Init Failed {str(e)}"
+                    )
+                    return None
+                if "cmd_port" in data:
+                    break
                 logger.info(
-                    f"{self._class_name}[init_new_browser]: Browser Init Failed {str(e)}"
+                    f"{self._class_name}[init_new_browser]: Waiting for Browser: "
+                    + str(data)
                 )
-                return None
-            if "cmd_port" in data:
-                break
-            logger.info(
-                f"{self._class_name}[init_new_browser]: Waiting for Browser: "
-                + str(data)
-            )
-            await asyncio.sleep(WAIT_TIME, loop=self.loop)
+                await asyncio.sleep(WAIT_TIME, loop=self.loop)
         tab_datas = await self.wait_for_tabs(data.get("ip"), self.conf["num_tabs"])
         return dict(ip=data.get("ip"), reqid=reqid, tab_datas=tab_datas)
 
@@ -113,8 +114,8 @@ class ShepherdDriver(Driver, ABC):
     ) -> List[Dict[str, str]]:
         filtered_tabs: List[Dict[str, str]] = []
         try:
-            res = await self.session.get(CDP_JSON.format(ip=ip))
-            tabs = await res.json()
+            async with self.session.get(CDP_JSON.format(ip=ip)) as res:
+                tabs = await res.json()
         except Exception as e:
             logger.info(str(e))
             return filtered_tabs
@@ -140,16 +141,18 @@ class ShepherdDriver(Driver, ABC):
             f"{self._class_name}[get_ip_for_reqid(reqid={reqid})]: Retrieving the ip associated with the reqid"
         )
         try:
-            res = await self.session.get(self.browser_info_url.format(reqid=reqid))
-            json = await res.json()  # type: Dict[str, str]
-            return json.get("ip")
+            async with self.session.get(
+                self.browser_info_url.format(reqid=reqid)
+            ) as res:
+                json = await res.json()  # type: Dict[str, str]
+                return json.get("ip")
         except Exception:
             pass
         return None
 
     async def create_browser_tab(self, ip: str) -> Dict[str, str]:
-        res = await self.session.get(CDP_JSON_NEW.format(ip=ip))
-        return await res.json()
+        async with self.session.get(CDP_JSON_NEW.format(ip=ip)) as res:
+            return await res.json()
 
     async def clean_up(self) -> None:
         logger.info(f"{self._class_name}[clean_up]: closing client session")
@@ -184,11 +187,12 @@ class SingleBrowserDriver(ShepherdDriver):
         )
         self.browser = Browser(
             info=AutomationInfo(
-                autoid=self.conf.get("autoid"), tab_type=self.conf.get("tab_type")
+                autoid=self.conf.get("autoid"),
+                tab_type=self.conf.get("tab_type"),
+                reqid=self.conf.get("reqid", ""),
             ),
             loop=self.loop,
             redis=self.redis,
-            sd_condition=self.shutdown_condition,
         )
         self.browser.on(Browser.Events.Exiting, self.on_browser_exit)
         await self.browser.init(tab_datas)
@@ -202,8 +206,7 @@ class SingleBrowserDriver(ShepherdDriver):
 
     async def pubsub_loop(self) -> None:
         self.pubsub_channel = await self.get_auto_event_channel()
-        logger.debug("pubsub loop started")
-
+        logger.debug("SingleBrowserDriver[pubsub_loop]: started")
         while await self.pubsub_channel.wait_message():
             msg = await self.pubsub_channel.get(encoding="utf-8", decoder=ujson.loads)
             logger.debug(f"{self._class_name}[pubsub_loop]: got message {msg}")
@@ -217,21 +220,28 @@ class SingleBrowserDriver(ShepherdDriver):
                     await tab.resume_behaviors()
 
             elif msg["cmd"] == "shutdown":
-                if self.browser.running:
-                    await self.browser.shutdown_gracefully()
+                self.shutdown_condition.initiate_shutdown()
+            logger.debug(
+                f"{self._class_name}[pubsub_loop]: waiting for another message"
+            )
+        logger.debug("SingleBrowserDriver[pubsub_loop]: stopped")
 
-    async def shutdown(self) -> None:
+    async def shutdown(self) -> int:
         logger.info("SingleBrowserDriver[shutdown]: shutting down")
         if self.browser is not None:
-            await self.browser.shutdown_gracefully()
+            await self.gracefully_shutdown_browser(self.browser)
+            self.browser = None
         await super().clean_up()
         logger.info("SingleBrowserDriver[shutdown]: exiting")
+        return self.determine_exit_code()
 
-    def on_browser_exit(self, info: AutomationInfo) -> None:
+    def on_browser_exit(self, info: BrowserExitInfo) -> None:
         logging.info(
             f"SingleBrowserDriver[on_browser_exit(info={info})]: The browser exited"
         )
+        self._browser_exit_infos.append(info)
         self.browser.remove_all_listeners()
+        self.browser = None
         self.shutdown_condition.initiate_shutdown()
 
 
@@ -284,7 +294,6 @@ class MultiBrowserDriver(ShepherdDriver):
                 ),
                 loop=self.loop,
                 redis=self.redis,
-                sd_condition=self.shutdown_condition,
             )
 
             await browser.init(tab_datas)
@@ -293,11 +302,10 @@ class MultiBrowserDriver(ShepherdDriver):
 
     async def remove_browser(self, reqid) -> None:
         logger.debug("Stop Automating Browser: " + reqid)
-        browser = self.browsers.get(reqid)
-        if not browser:
+        browser = self.browsers.pop(reqid, None)
+        if browser is None:
             return
-        del self.browsers[reqid]
-        await browser.shutdown_gracefully()
+        await self.gracefully_shutdown_browser(browser)
 
     async def init(self) -> None:
         logger.info("MultiBrowserDriver[init]: initializing")
@@ -305,22 +313,23 @@ class MultiBrowserDriver(ShepherdDriver):
         self.pubsub_channel = await self.get_auto_event_channel()
         self.pubsub_task = self.loop.create_task(self.pubsub_loop())
 
-    async def shutdown(self) -> None:
+    async def shutdown(self) -> int:
         logger.info("MultiBrowserDriver[shutdown]: shutting down")
         for browser in self.browsers.values():
-            await browser.shutdown_gracefully()
+            await self.gracefully_shutdown_browser(browser)
         self.browsers.clear()
         await self.clean_up()
         logger.info("MultiBrowserDriver[shutdown]: exiting")
+        return self.determine_exit_code()
 
-    def on_browser_exit(self, info: AutomationInfo) -> None:
+    def on_browser_exit(self, info: BrowserExitInfo) -> None:
         sig = f"MultiBrowserDriver[on_browser_exit(info={info})]"
         logging.info(f"{sig}: the browser exited")
-        browser = self.browsers.get(info.reqid)
+        browser = self.browsers.pop(info.auto_info.reqid, None)
         if browser is None:
             return
-        del self.browsers[info.reqid]
         browser.remove_all_listeners()
+        self._browser_exit_infos.append(info)
         if len(self.browsers) == 0:
             logging.info(f"{sig}: no more active browsers, shutting down")
             self.shutdown_condition.initiate_shutdown()

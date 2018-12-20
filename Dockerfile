@@ -12,7 +12,7 @@ RUN yarn install && yarn run build-dev
 
 
 
-FROM python:3.7.1
+FROM python:3.7.1 as driver
 
 COPY requirements.txt /temp/requirements.txt
 RUN cd /temp && pip install -r requirements.txt

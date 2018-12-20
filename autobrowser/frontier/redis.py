@@ -7,31 +7,29 @@ from typing import List, Awaitable, ClassVar, Dict, Union, Iterable
 import attr
 from aioredis import Redis
 
+from autobrowser.automation import RedisKeys
 from autobrowser.scope import RedisScope
+
 
 __all__ = ["RedisFrontier"]
 
 logger = logging.getLogger("autobrowser")
 
 
-def to_redis_key(aid: str) -> str:
-    return f"a:{aid}"
-
-
 @attr.dataclass(slots=True)
 class RedisFrontier(object):
     redis: Redis = attr.ib(repr=False)
-    autoid: str = attr.ib(converter=to_redis_key)
+    keys: RedisKeys = attr.ib()
     loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
-    scope: RedisScope = attr.ib(init=False, default=None)
-    info_key: str = attr.ib(init=False, default=None)
-    q_key: str = attr.ib(init=False, default=None)
-    pending_key: str = attr.ib(init=False, default=None)
-    seen_key: str = attr.ib(init=False, default=None)
+    scope: RedisScope = attr.ib(init=False)
     crawl_depth: int = attr.ib(init=False, default=-1)
     currently_crawling: Dict[str, Union[str, int]] = attr.ib(init=False, default=None)
 
     CRAWL_DEPTH_FIELD: ClassVar[str] = "crawl_depth"
+
+    @scope.default
+    def _init_scope(self) -> RedisScope:
+        return RedisScope(self.redis, self.keys)
 
     async def wait_for_populated_q(self, wait_time: Union[int, float] = 60) -> None:
         """Waits for the q to become populated by polling exhausted at wait_time intervals.
@@ -59,32 +57,32 @@ class RedisFrontier(object):
 
     async def q_len(self) -> int:
         """Returns an Awaitable that resolves to the length of the frontier's q"""
-        return await self.redis.llen(self.q_key)
+        return await self.redis.llen(self.keys.queue)
 
     async def exhausted(self) -> bool:
         """Returns a boolean that indicates if the frontier is exhausted or not"""
-        return await self.redis.llen(self.q_key) == 0
+        return await self.redis.llen(self.keys.queue) == 0
 
     async def is_seen(self, url: str) -> bool:
         """Returns an Awaitable that resolves with a boolean that indicates if the supplied URL has been seen or not"""
-        return await self.redis.sismember(self.seen_key, url) == 1
+        return await self.redis.sismember(self.keys.seen, url) == 1
 
     def add_to_pending(self, url: str) -> Awaitable[None]:
         """Add the supplied URL to the pending set
 
         :param url: The URL to add to the pending set
         """
-        return self.redis.sadd(self.pending_key, url)
+        return self.redis.sadd(self.keys.pending, url)
 
     def remove_from_pending(self, url: str) -> Awaitable[None]:
         """Remove the supplied URL from the pending set
 
         :param url: The URL to be removed from the pending set
         """
-        return self.redis.srem(self.pending_key, url)
+        return self.redis.srem(self.keys.pending, url)
 
     async def _pop_url(self) -> Dict[str, Union[str, int]]:
-        udict_str = await self.redis.lpop(self.q_key)
+        udict_str = await self.redis.lpop(self.keys.queue)
         return ujson.loads(udict_str)
 
     async def next_url(self) -> str:
@@ -108,7 +106,7 @@ class RedisFrontier(object):
     async def init(self) -> None:
         """Initialize the frontier"""
         self.crawl_depth = int(
-            await self.redis.hget(self.info_key, self.CRAWL_DEPTH_FIELD) or 0
+            await self.redis.hget(self.keys.info, self.CRAWL_DEPTH_FIELD) or 0
         )
         logger.info(f"RedisFrontier[init]: crawl depth = {self.crawl_depth}")
         await self.scope.init()
@@ -124,8 +122,8 @@ class RedisFrontier(object):
         should_add = self.scope.in_scope(url)
         if should_add and not await self.is_seen(url):
             await asyncio.gather(
-                self.redis.rpush(self.q_key, ujson.dumps(dict(url=url, depth=depth))),
-                self.redis.sadd(self.seen_key, url),
+                self.redis.rpush(self.keys.queue, ujson.dumps(dict(url=url, depth=depth))),
+                self.redis.sadd(self.keys.seen, url),
                 loop=self.loop,
             )
 
@@ -159,14 +157,7 @@ class RedisFrontier(object):
         logger.info(f"RedisFrontier[add_all]: adding {qlen} urls to the frontier")
         if qlen > 0:
             await asyncio.gather(
-                self.redis.rpush(self.q_key, *add_to_queue),
-                self.redis.sadd(self.seen_key, *add_to_seen),
+                self.redis.rpush(self.keys.queue, *add_to_queue),
+                self.redis.sadd(self.keys.seen, *add_to_seen),
                 loop=self.loop,
             )
-
-    def __attrs_post_init__(self) -> None:
-        self.info_key = f"{self.autoid}:info"
-        self.q_key = f"{self.autoid}:q"
-        self.pending_key = f"{self.autoid}:qp"
-        self.seen_key = f"{self.autoid}:seen"
-        self.scope = RedisScope(self.redis, self.autoid)

@@ -110,6 +110,7 @@ class Behavior(ABC):
             await self.load_resources()
         if self._pre_init:
             await self.pre_action_init()
+        await self.evaluate_in_page("window.$WBBehaviorPaused = false")
         self._did_init = True
 
     def run_task(self, loop: Optional[AbstractEventLoop] = None) -> Task:
@@ -139,15 +140,20 @@ class Behavior(ABC):
          - call tab.collect_outlinks if collection outlinks
          after an action was performed
         """
-        await self.init()
         logger.info(f"{self._clz_name}[run]: running behavior")
-        self.tab.set_running_behavior(self)
-        while not self.done:
-            await self.perform_action()
-            if self.collect_outlinks:
-                await self.tab.collect_outlinks()
-        logger.info(f"{self._clz_name}[run]: behavior done")
-        self.tab.unset_running_behavior(self)
+        await self.init()
+        try:
+            self.tab.set_running_behavior(self)
+            while not self.done:
+                await self.perform_action()
+                if self.collect_outlinks:
+                    await self.tab.collect_outlinks()
+            logger.info(f"{self._clz_name}[run]: behavior done")
+        except Exception as e:
+            logger.exception(f"{self._clz_name}[run]: while running an exception was raised", exc_info=e)
+            raise
+        finally:
+            self.tab.unset_running_behavior(self)
 
     def evaluate_in_page(self, js_string: str) -> Awaitable[Any]:
         """Evaluate a string of JavaScript inside the page or frame.

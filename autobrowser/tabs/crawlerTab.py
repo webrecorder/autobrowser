@@ -5,9 +5,10 @@ from typing import List, Optional, Any, Callable
 
 import aiofiles
 from async_timeout import timeout
-from simplechrome.errors import NavigationError, NavigationTimeoutError
+from simplechrome.errors import NavigationTimeoutError
 from simplechrome.frame_manager import FrameManager, Frame
 
+from autobrowser.automation import RedisKeys, CloseReason
 from autobrowser.behaviors import BehaviorManager
 from autobrowser.frontier import RedisFrontier
 from .basetab import Tab
@@ -39,15 +40,13 @@ class CrawlerTab(Tab):
         self.clear_outlinks: str = "window.$wbOutlinkSet$.clear()"
         #: The frame manager for the page
         self.frame_manager: FrameManager = None
+        self.redis_keys = RedisKeys(self.browser.autoid)
         #: The crawling main loop
         self.crawl_loop: Optional[Task] = None
-        self.frontier: RedisFrontier = RedisFrontier(self.redis, self.browser.autoid)
+        self.frontier: RedisFrontier = RedisFrontier(self.redis, self.redis_keys)
         #: The maximum amount of time the crawler should run behaviors for
         self._max_behavior_time: int = self.browser.info.max_behavior_time
         self._navigation_timeout: int = self.browser.info.navigation_timeout
-        self._indicate_done: Callable[
-            [], None
-        ] = self.browser.sd_condition.track_pending_task()
 
     @classmethod
     def create(cls, *args, **kwargs) -> "CrawlerTab":
@@ -68,20 +67,18 @@ class CrawlerTab(Tab):
         """
         self._url = url
         try:
-            await self.main_frame.goto(
+            await self.frame_manager.mainFrame.goto(
                 url, waitUntil=wait, timeout=self._navigation_timeout, **kwargs
             )
-        except (NavigationError, NavigationTimeoutError) as ne:
+        except NavigationTimeoutError as ne:
             logger.exception(
-                f"CrawlerTab[goto]: navigation error for {url}, error msg = {ne}"
+                f"CrawlerTab[goto]: navigation timeout for {url}",
+                exc_info=ne
             )
+            return False
+        except Exception as e:
+            logger.exception(f"CrawlerTab[goto]: unknown error while navigating to {url}", exc_info=e)
             return True
-        except e:
-            logger.error(
-                f"CrawlerTab[goto]: unknown error while navigating: {e}"
-            )
-            return True
-
         return False
 
     async def collect_outlinks(self) -> None:
@@ -132,9 +129,9 @@ class CrawlerTab(Tab):
                 else:
                     await behavior.run()
             except TimeoutError:
-                logger.info("CrawlerTab[crawl]: timed behavior to")
+                logger.info("CrawlerTab[run_behavior]: timed behavior to")
             except Exception as e:
-                logger.error(f"CrawlerTab[crawl]: behavior threw an error {e}")
+                logger.error(f"CrawlerTab[run_behavior]: behavior threw an error {e}")
 
     async def init(self) -> None:
         """Initialize the crawler tab, if the crawler tab is already
@@ -202,23 +199,17 @@ class CrawlerTab(Tab):
         if self._running_behavior is not None:
             logger.info("CrawlerTab[close]: ending the running behavior")
             self._running_behavior.end()
-        if self._graceful_shutdown and self._crawl_loop_running():
-            await self.crawl_loop
-            self.crawl_loop = None
-        if self._crawl_loop_running():
+        if self._graceful_shutdown or self._crawl_loop_running():
             self.crawl_loop.cancel()
             try:
                 await self.crawl_loop
             except CancelledError:
                 pass
+        self.crawl_loop = None
+        if self._close_reason is None and await self.frontier.exhausted():
+            self._close_reason = CloseReason.CRAWL_END
+        await self.redis.sadd(self.redis_keys.auto_done, self.browser.reqid)
         await super().close()
-        self._indicate_done()
-
-    async def shutdown_gracefully(self) -> None:
-        logger.info("CrawlerTab[shutdown_gracefully]: shutting down")
-        self._graceful_shutdown = True
-        await self.close()
-        logger.info("CrawlerTab[shutdown_gracefully]: shutdown complete")
 
     async def manual_collect_outlinks(self):
         await self.client.DOM.enable()

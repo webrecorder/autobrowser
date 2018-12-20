@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from .helper import Helper
 from .netidle import NetworkIdleMonitor, monitor
 

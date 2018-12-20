@@ -6,6 +6,8 @@ import attr
 from aioredis import Redis
 from urlcanon import MatchRule
 
+from autobrowser.automation import RedisKeys
+
 surt_end = b")"
 
 __all__ = ["RedisScope"]
@@ -14,14 +16,10 @@ __all__ = ["RedisScope"]
 logger = logging.getLogger("autobrowser")
 
 
-def to_redis_key(aid: str) -> str:
-    return f"{aid}:scope"
-
-
 @attr.dataclass(slots=True)
 class RedisScope(object):
     redis: Redis = attr.ib(repr=False)
-    scope_key: str = attr.ib(converter=to_redis_key)
+    keys: RedisKeys = attr.ib()
     rules: List[MatchRule] = attr.ib(init=False, factory=list)
     all_links: bool = attr.ib(init=False, default=False)
 
@@ -31,7 +29,7 @@ class RedisScope(object):
         Retrieves all scope rules from the scope field and populates the rules list.
         If the retrieved scope rules is zero then all links are considered in scope.
         """
-        for scope_str in await self.redis.smembers(self.scope_key):
+        for scope_str in await self.redis.smembers(self.keys.scope):
             scope = ujson.loads(scope_str)
             logger.info(f"RedisScope scope_str: {scope_str}")
             self.rules.append(MatchRule(**scope))

@@ -1,10 +1,21 @@
 import socket
 from typing import Dict, Optional, Any, List
+from collections import Counter
+from enum import Enum, auto
 import attr
 import os
 import ujson
 
-__all__ = ["AutomationInfo", "AutomationConfig", "build_automation_config"]
+__all__ = [
+    "AutomationInfo",
+    "AutomationConfig",
+    "BrowserExitInfo",
+    "build_automation_config",
+    "CloseReason",
+    "exit_code_from_reason",
+    "RedisKeys",
+    "TabClosedInfo",
+]
 
 
 def get_browser_host_ip(browser_host: Optional[str]) -> str:
@@ -73,6 +84,83 @@ class AutomationInfo(object):
     net_cache_disabled: bool = attr.ib(
         default=bool(os.environ.get("CRAWL_NO_NETCACHE")), repr=False
     )
-    wait_for_q: int = attr.ib(
-        default=int(os.environ.get("WAIT_FOR_Q", 0)), repr=False
-    )
+    wait_for_q: int = attr.ib(default=int(os.environ.get("WAIT_FOR_Q", 0)), repr=False)
+
+
+def to_redis_key(aid: str) -> str:
+    return f"a:{aid}"
+
+
+@attr.dataclass(slots=True)
+class RedisKeys(object):
+    """Utility class that has the redis keys used by an automation as properties"""
+
+    autoid: str = attr.ib(converter=to_redis_key)
+    info: str = attr.ib(init=False, default=None)
+    queue: str = attr.ib(init=False, default=None)
+    pending: str = attr.ib(init=False, default=None)
+    seen: str = attr.ib(init=False, default=None)
+    scope: str = attr.ib(init=False, default=None)
+    auto_done: str = attr.ib(init=False, default=None)
+
+    def __attrs_post_init__(self) -> None:
+        self.info = f"{self.autoid}:info"
+        self.queue = f"{self.autoid}:q"
+        self.pending = f"{self.autoid}:qp"
+        self.seen = f"{self.autoid}:seen"
+        self.scope = f"{self.autoid}:scope"
+        self.auto_done = f"{self.autoid}:br:done"
+
+
+class CloseReason(Enum):
+    """An enumeration of the possible reasons for a tab to become closed"""
+
+    GRACEFULLY = auto()
+    CONNECTION_CLOSED = auto()
+    TARGET_CRASHED = auto()
+    CLOSED = auto()
+    CRAWL_END = auto()
+    NONE = auto()
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+def exit_code_from_reason(reason: CloseReason) -> int:
+    if reason in (CloseReason.TARGET_CRASHED, CloseReason.CONNECTION_CLOSED):
+        return 2
+    return 0
+
+
+@attr.dataclass(slots=True)
+class TabClosedInfo(object):
+    """Simple data class containing the information about why a tab closed"""
+
+    tab_id: str = attr.ib()
+    reason: CloseReason = attr.ib()
+
+
+@attr.dataclass(slots=True)
+class BrowserExitInfo(object):
+    """Simple data class containing the information about why a browser is exiting"""
+
+    auto_info: AutomationInfo = attr.ib()
+    tab_closed_reasons: List[TabClosedInfo] = attr.ib()
+
+    def exit_reason_code(self) -> int:
+        tcr_len = len(self.tab_closed_reasons)
+        if tcr_len == 0:
+            return 0
+        elif tcr_len == 1:
+            return exit_code_from_reason(self.tab_closed_reasons[0].reason)
+        tcr_counter = Counter()
+        for tcr in self.tab_closed_reasons:
+            tcr_counter[tcr.reason] += 1
+        exit_reason, count = max(
+            tcr_counter.items(), key=lambda reason_count: reason_count[1]
+        )
+        return exit_code_from_reason(exit_reason)
+
