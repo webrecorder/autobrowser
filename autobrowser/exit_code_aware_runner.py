@@ -1,7 +1,9 @@
+"""A modified asyncio.runners.run that ensures the process exits with a specific exit code"""
+import asyncio
+import logging
+import sys
 from asyncio import coroutines, events, tasks
 from typing import Coroutine
-import sys
-import logging
 
 __all__ = ["run_automation"]
 
@@ -15,15 +17,16 @@ def run_automation(main: Coroutine, *, debug: bool = False) -> None:
 
 def _run(main: Coroutine, *, debug: bool = False):
     if events._get_running_loop() is not None:
-        raise RuntimeError("start() cannot be called from a running event loop")
+        raise RuntimeError("run_automation() cannot be called from a running event loop")
 
     if not coroutines.iscoroutine(main):
         raise ValueError("a coroutine was expected, got {!r}".format(main))
-    loop = events.new_event_loop()
+    loop = asyncio.get_event_loop()
     try:
-        events.set_event_loop(loop)
         loop.set_debug(debug)
-        return loop.run_until_complete(main)
+        result = loop.run_until_complete(main)
+        logger.info(f"run_automation: exiting with code {result}")
+        return result
     except Exception as e:
         logger.exception('run_automation: While running an automation an exception was thrown', exc_info=e)
         return 2
@@ -34,8 +37,9 @@ def _run(main: Coroutine, *, debug: bool = False):
         try:
             _cancel_all_tasks(loop)
             loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
         finally:
-            events.set_event_loop(None)
             loop.close()
 
 
@@ -55,7 +59,7 @@ def _cancel_all_tasks(loop):
         if task.exception() is not None:
             loop.call_exception_handler(
                 {
-                    "message": "unhandled exception during asyncio.run() shutdown",
+                    "message": "unhandled exception during run_automation() shutdown",
                     "exception": task.exception(),
                     "task": task,
                 }

@@ -1,7 +1,8 @@
+import asyncio
 import logging
 from asyncio import Task, CancelledError, TimeoutError
 from pathlib import Path
-from typing import List, Optional, Any, Callable
+from typing import List, Optional, Any
 
 import aiofiles
 from async_timeout import timeout
@@ -72,12 +73,13 @@ class CrawlerTab(Tab):
             )
         except NavigationTimeoutError as ne:
             logger.exception(
-                f"CrawlerTab[goto]: navigation timeout for {url}",
-                exc_info=ne
+                f"CrawlerTab[goto]: navigation timeout for {url}", exc_info=ne
             )
             return False
         except Exception as e:
-            logger.exception(f"CrawlerTab[goto]: unknown error while navigating to {url}", exc_info=e)
+            logger.exception(
+                f"CrawlerTab[goto]: unknown error while navigating to {url}", exc_info=e
+            )
             return True
         return False
 
@@ -114,6 +116,8 @@ class CrawlerTab(Tab):
     async def run_behavior(self) -> None:
         # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
         # after any redirects happen
+        if self._graceful_shutdown:
+            return
         self._url = self.main_frame.url
         behavior = BehaviorManager.behavior_for_url(
             self.main_frame.url, self, collect_outlinks=True
@@ -124,15 +128,19 @@ class CrawlerTab(Tab):
             # run the behavior in a timed fashion (async_timeout will cancel the corutine if max time is reached)
             try:
                 if self._max_behavior_time != -1:
-                    logger.info(f"CrawlerTab[crawl]: max behavior run time: {self._max_behavior_time}")
+                    logger.info(
+                        f"CrawlerTab[crawl]: max behavior run time: {self._max_behavior_time}"
+                    )
                     async with timeout(self._max_behavior_time, loop=self.loop):
                         await behavior.run()
                 else:
                     await behavior.run()
             except TimeoutError:
-                logger.info(f"CrawlerTab[run_behavior]: timed behavior to: {self._max_behavior_time}")
+                logger.info(
+                    f"CrawlerTab[run_behavior]: timed behavior to: {self._max_behavior_time}"
+                )
             except Exception as e:
-                logger.error(f"CrawlerTab[run_behavior]: behavior threw an error {e}")
+                logger.exception(f"CrawlerTab[run_behavior]: behavior threw an error", exc_info=e)
 
     async def init(self) -> None:
         """Initialize the crawler tab, if the crawler tab is already
@@ -161,11 +169,14 @@ class CrawlerTab(Tab):
             await self.frontier.wait_for_populated_q(self.browser.info.wait_for_q)
         self.crawl_loop = self.loop.create_task(self.crawl())
         logger.info("CrawlerTab[init]: initialized")
+        await asyncio.sleep(0)
 
     async def crawl(self) -> None:
-        frontier_state = "" if await self.frontier.exhausted() else "not"
+        frontier_state = (
+            "exhausted" if await self.frontier.exhausted() else "not exhausted"
+        )
         logger.info(
-            f"CrawlerTab[crawl]: crawl loop starting and the frontier is {frontier_state} exhausted"
+            f"CrawlerTab[crawl]: crawl loop starting and the frontier is {frontier_state}"
         )
         # loop until frontier is exhausted
         while not await self.frontier.exhausted():
@@ -198,16 +209,28 @@ class CrawlerTab(Tab):
             await self.close()
 
     async def close(self) -> None:
-        logger.info("CrawlerTab[close]: closing")
+        logger.info(
+            f"CrawlerTab[close]: closing {'gracefully' if self._graceful_shutdown else ''}"
+        )
         if self._running_behavior is not None:
             logger.info("CrawlerTab[close]: ending the running behavior")
             self._running_behavior.end()
-        if self._graceful_shutdown or self._crawl_loop_running():
-            self.crawl_loop.cancel()
+        if self._crawl_loop_running():
+            if not self._graceful_shutdown:
+                logger.info("CrawlerTab[close]: canceling the crawl loop task")
+                self.crawl_loop.cancel()
+            logger.info("CrawlerTab[close]: waiting for the crawl loop task to end")
             try:
                 await self.crawl_loop
             except CancelledError:
                 pass
+            except Exception as e:
+                logger.exception(
+                    "CrawlerTab[close]: the crawl loop threw an unexpected exception while "
+                    "waiting for it to end",
+                    exc_info=e,
+                )
+        logger.info("CrawlerTab[close]: crawl loop task ended")
         self.crawl_loop = None
         if self._close_reason is None and await self.frontier.exhausted():
             self._close_reason = CloseReason.CRAWL_END

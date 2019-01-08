@@ -3,17 +3,11 @@ import logging
 from asyncio import AbstractEventLoop
 from asyncio.subprocess import Process
 from typing import Optional, Dict, List
-from collections import Counter
 
 from async_timeout import timeout
 from cripy import CDP, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_URL
 
-from autobrowser.automation import (
-    AutomationConfig,
-    AutomationInfo,
-    BrowserExitInfo,
-    exit_code_from_reason,
-)
+from autobrowser.automation import AutomationConfig, AutomationInfo, BrowserExitInfo
 from autobrowser.browser import Browser
 from autobrowser.errors import DriverError
 from .basedriver import Driver
@@ -45,11 +39,11 @@ class LocalBrowserDiver(Driver):
     async def get_tabs(self) -> List[Dict[str, str]]:
         tabs: List[Dict[str, str]] = []
         connect_opts = self._make_connect_opts()
-        for tab in await CDP.List(**connect_opts):
+        for tab in await CDP.List(**connect_opts, loop=self.loop):
             if tab["type"] == "page" and "webSocketDebuggerUrl" in tab:
                 tabs.append(tab)
         for _ in range(self.conf.get("num_tabs") - 1):
-            tab = await CDP.New(**connect_opts)
+            tab = await CDP.New(**connect_opts, loop=self.loop)
             tabs.append(tab)
         return tabs
 
@@ -58,14 +52,17 @@ class LocalBrowserDiver(Driver):
         self.chrome_process = await asyncio.create_subprocess_exec(
             chrome_opts["exe"],
             *chrome_opts["args"],
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
             loop=self.loop,
         )
         while True:
-            line = await self.chrome_process.stderr.readline()
-            if b"DevTools listening on" in line:
-                print(line)
+            try:
+                await CDP.List()
                 break
+            except Exception:
+                await asyncio.sleep(0)
+                pass
 
     async def init(self) -> None:
         logger.info(f"{self._class_name}[init]: initializing")
@@ -83,7 +80,9 @@ class LocalBrowserDiver(Driver):
             raise DriverError("No Tabs Were Found To Connect To")
         self.browser = Browser(
             info=AutomationInfo(
-                autoid=self.conf.get("autoid"), tab_type=self.conf.get("tab_type")
+                autoid=self.conf.get("autoid", ""),
+                reqid=self.conf.get("reqid", ""),
+                tab_type=self.conf.get("tab_type"),
             ),
             loop=self.loop,
             redis=self.redis,

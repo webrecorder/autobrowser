@@ -46,6 +46,7 @@ class BehaviorTab(Tab):
             return
         await super().init()
         self._curr_behavior_url = self.tab_data.get("url")
+        await asyncio.sleep(0)
 
     async def close(self) -> None:
         logger.info(f"BehaviorTab[close]: closing")
@@ -61,7 +62,6 @@ class BehaviorTab(Tab):
         logger.debug(
             f"BehaviorTab[_run_behavior_for_current_url]: starting behavior {behavior} for {self._curr_behavior_url}"
         )
-        self.set_running_behavior(behavior)
         self._behavior_run_task = self.loop.create_task(behavior.run())
 
     async def _ensure_behavior_run_task_end(self) -> None:

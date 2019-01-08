@@ -61,7 +61,9 @@ class RedisFrontier(object):
 
     async def exhausted(self) -> bool:
         """Returns a boolean that indicates if the frontier is exhausted or not"""
-        return await self.redis.llen(self.keys.queue) == 0
+        qlen = await self.redis.llen(self.keys.queue)
+        logger.info(f"RedisFrontier[exhausted]: len(queue) = {qlen}")
+        return qlen == 0
 
     async def is_seen(self, url: str) -> bool:
         """Returns an Awaitable that resolves with a boolean that indicates if the supplied URL has been seen or not"""
@@ -72,6 +74,7 @@ class RedisFrontier(object):
 
         :param url: The URL to add to the pending set
         """
+        logger.info(f"RedisFrontier[add_to_pending]: Adding {url} to the pending set")
         return self.redis.sadd(self.keys.pending, url)
 
     def remove_from_pending(self, url: str) -> Awaitable[None]:
@@ -127,7 +130,9 @@ class RedisFrontier(object):
         should_add = self.scope.in_scope(url)
         if should_add and not await self.is_seen(url):
             await asyncio.gather(
-                self.redis.rpush(self.keys.queue, ujson.dumps(dict(url=url, depth=depth))),
+                self.redis.rpush(
+                    self.keys.queue, ujson.dumps(dict(url=url, depth=depth))
+                ),
                 self.redis.sadd(self.keys.seen, url),
                 loop=self.loop,
             )

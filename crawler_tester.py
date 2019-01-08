@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import traceback
 import ujson
 from asyncio import AbstractEventLoop
 
@@ -43,6 +42,7 @@ DEFAULT_ARGS = [
     "--disable-infobars",
     "--disable-features=site-per-process",
     "--disable-breakpad",
+    "--disable-backing-store-limit",
     "--metrics-recording-only",
     "--no-first-run",
     "--safebrowsing-disable-auto-update",
@@ -111,12 +111,13 @@ RESET_REDIS = True
 
 logger = logging.getLogger("autobrowser")
 logger.setLevel(logging.DEBUG)
+
+# logging.getLogger("cripy.connection").setLevel(logging.DEBUG)
 # logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 async def crawl_baby_crawl() -> int:
     loop: AbstractEventLoop = asyncio.get_event_loop()
-    local_driver: LocalBrowserDiver = None
     if RESET_REDIS:
         redis: Redis = await aioredis.create_redis(
             "redis://localhost", loop=loop, encoding="utf-8"
@@ -124,21 +125,24 @@ async def crawl_baby_crawl() -> int:
         await reset_redis(redis)
         redis.close()
         await redis.wait_closed()
-    try:
-        local_driver = LocalBrowserDiver(
-            conf=build_automation_config(
-                autoid=dummy_auto_id,
-                chrome_opts=dict(launch=True, exe=CHROME, args=DEFAULT_ARGS),
-                tab_type="CrawlerTab",
-            ),
-            loop=loop,
-        )
+    local_driver = LocalBrowserDiver(
+        conf=build_automation_config(
+            autoid=dummy_auto_id,
+            reqid="abc123",
+            chrome_opts=dict(launch=True, exe=CHROME, args=DEFAULT_ARGS),
+            tab_type="CrawlerTab",
+        ),
+        loop=loop,
+    )
 
-        return await local_driver.run()
-    finally:
-        if local_driver:
-            return await local_driver.shutdown()
+    # async def it():
+    #     await asyncio.sleep(3)
+    #     local_driver.initiate_shutdown()
+    #
+    # asyncio.ensure_future(it(), loop=loop)
+
+    return await local_driver.run()
 
 
 if __name__ == "__main__":
-    run_automation(crawl_baby_crawl())
+    run_automation(crawl_baby_crawl(), debug=True)

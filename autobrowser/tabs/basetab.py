@@ -24,6 +24,7 @@ logger = logging.getLogger("autobrowser")
 
 @attr.dataclass(slots=True, frozen=True)
 class TabEvents(object):
+    """The events emitted by tab instances"""
     Closed: str = attr.ib(default="Tab:Closed")
 
 
@@ -90,9 +91,19 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         return self._running and self._reconnecting
 
     def set_running_behavior(self, behavior: Behavior) -> None:
+        """Set the tabs running behavior (done automatically by
+        behaviors)
+
+        :param behavior: The behavior that is currently running
+        """
         self._running_behavior = behavior
 
     def unset_running_behavior(self, behavior: Behavior) -> None:
+        """Un-sets the tabs running behavior (done automatically by
+        behaviors)
+
+        :param behavior: The behavior that was running
+        """
         if self._running_behavior and behavior is self._running_behavior:
             self._running_behavior = None
 
@@ -201,6 +212,10 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         pass
 
     async def connect_to_tab(self) -> None:
+        """Initializes the connection to the remote browser tab and
+        sets up listeners for when the connection is closed/detached or the
+        browser tab crashes
+        """
         if self._running:
             return
         logger.info(
@@ -260,23 +275,39 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         self.emit(Tab.Events.Closed, TabClosedInfo(self.tab_id, self._close_reason))
 
     async def shutdown_gracefully(self) -> None:
+        """Initiates the graceful shutdown of the tab"""
         logger.info(f"{self._clz_name}[shutdown_gracefully]: shutting down")
         self._graceful_shutdown = True
         await self.close()
         logger.info(f"{self._clz_name}[shutdown_gracefully]: shutdown complete")
 
     async def collect_outlinks(self) -> None:
+        """Collect outlinks from the remote tab somehow.
+
+        Only tabs that require the extraction of outlinks should override
+        (provide implementation) for this method.
+        """
         pass
 
     async def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
+        """Listener function for when the target has crashed.
+
+        If the tab is running the close reason will be set to TARGET_CRASHED and
+        the tab will be closed
+        """
         if self._running:
             logger.critical(
-                f"{self._clz_name}[_on_inspector_crashed]: target crashed while running"
+                f"{self._clz_name}<url={self._url}>[_on_inspector_crashed]: target crashed while running"
             )
             self._close_reason = CloseReason.TARGET_CRASHED
             await self.close()
 
     async def _on_connection_closed(self, *args: Any, **kwargs: Any) -> None:
+        """Listener function for when the connection has clossed.
+
+        If the tab is running the close reason will be set to CONNECTION_CLOSED and
+        the tab will be closed
+        """
         if self._running:
             logger.critical(
                 f"{self._clz_name}<url={self._url}>[_on_connection_closed]: connection closed while running"

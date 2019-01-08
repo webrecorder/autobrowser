@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import asyncio
 import logging
 from abc import ABC, abstractmethod
@@ -79,11 +78,13 @@ class Behavior(ABC):
     def end(self) -> None:
         """Unconditionally set the behaviors running state to done"""
         self._done = True
+        logger.info(f"{self._clz_name}[end]: ending unconditionally")
 
     async def load_resources(self) -> Any:
         """Load the resources required by a behavior.
 
-        Behaviors that require resources, typically JS, are expected to subclass JSBasedBehavior.
+        Behaviors that require resources, typically JS, are expected to
+        subclass JSBasedBehavior.
         """
         pass
 
@@ -112,6 +113,9 @@ class Behavior(ABC):
             await self.pre_action_init()
         await self.evaluate_in_page("window.$WBBehaviorPaused = false")
         self._did_init = True
+        # we will wait 1 tick of the event loop before performing another action
+        # in order to allow any other tasks to continue on
+        await asyncio.sleep(0)
 
     def run_task(self, loop: Optional[AbstractEventLoop] = None) -> Task:
         """Run the behavior as a task, if the behavior is already running as
@@ -145,9 +149,15 @@ class Behavior(ABC):
         try:
             self.tab.set_running_behavior(self)
             while not self.done:
+                logger.info(f"{self._clz_name}[run]: performing action")
                 await self.perform_action()
                 if self.collect_outlinks:
+                    logger.info(f"{self._clz_name}[run]: collecting outlinks")
                     await self.tab.collect_outlinks()
+                # we will wait 1 tick of the event loop before performing another action
+                # in order to allow any other tasks to continue on
+                if not self.done:
+                    await asyncio.sleep(0)
             logger.info(f"{self._clz_name}[run]: behavior done")
         except Exception as e:
             logger.exception(f"{self._clz_name}[run]: while running an exception was raised", exc_info=e)
@@ -161,16 +171,19 @@ class Behavior(ABC):
         :param js_string: The string of JavaScript to be evaluated
         """
         if self.frame is not None:
+            logger.info(f"{self._clz_name}[evaluate_in_page]: using supplied frame")
             if callable(self.frame):
                 frame = self.frame()
             else:
                 frame = self.frame
             return frame.evaluate_expression(js_string, withCliAPI=True)
+        logger.info(f"{self._clz_name}[evaluate_in_page]: using tab.evaluate_in_page")
         return self.tab.evaluate_in_page(js_string)
 
     def _finished(self) -> None:
         """Sets the state of the behavior to done"""
         self._done = True
+        logger.info(f"{self._clz_name}[_finished]: ending")
 
     def __attrs_post_init__(self) -> None:
         self._pre_init = self.conf.get("pre_init", self._pre_init)
@@ -198,6 +211,7 @@ class JSBasedBehavior(Behavior, ABC):
         # check if we injected our setup code or not
         # did not so inject it
         await self.evaluate_in_page(self._resource)
+        logger.info(f"{self._clz_name}[pre_action_init]: performed pre action init")
 
     async def load_resources(self) -> None:
         resource = self.conf.get("resource")
