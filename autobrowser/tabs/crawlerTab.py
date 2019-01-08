@@ -124,12 +124,13 @@ class CrawlerTab(Tab):
             # run the behavior in a timed fashion (async_timeout will cancel the corutine if max time is reached)
             try:
                 if self._max_behavior_time != -1:
+                    logger.info(f"CrawlerTab[crawl]: max behavior run time: {self._max_behavior_time}")
                     async with timeout(self._max_behavior_time, loop=self.loop):
                         await behavior.run()
                 else:
                     await behavior.run()
             except TimeoutError:
-                logger.info("CrawlerTab[run_behavior]: timed behavior to")
+                logger.info(f"CrawlerTab[run_behavior]: timed behavior to: {self._max_behavior_time}")
             except Exception as e:
                 logger.error(f"CrawlerTab[run_behavior]: behavior threw an error {e}")
 
@@ -184,6 +185,8 @@ class CrawlerTab(Tab):
 
             # maybe run a behavior
             await self.run_behavior()
+
+            await self.frontier.clear_pending()
 
             if self._graceful_shutdown:
                 logger.info(

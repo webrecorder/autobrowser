@@ -90,18 +90,23 @@ class RedisFrontier(object):
 
         :return: The next URL to be crawled
         """
-        if self.currently_crawling is not None:
-            logger.info(
-                f"RedisFrontier[next_url]: removing the previous URL {self.currently_crawling} from the pending set"
-            )
-            curl: str = self.currently_crawling["url"]
-            await self.remove_from_pending(curl)
         self.currently_crawling = await self._pop_url()
         logger.info(
             f"RedisFrontier[next_url]: the next URL is {self.currently_crawling}"
         )
         await self.add_to_pending(self.currently_crawling["url"])
         return self.currently_crawling["url"]
+
+    async def clear_pending(self) -> None:
+        """If currently_crawling url is set, remove it from pending set
+        """
+        if self.currently_crawling is not None:
+            logger.info(
+                f"RedisFrontier[next_url]: removing the previous URL {self.currently_crawling} from the pending set"
+            )
+            curl: str = self.currently_crawling["url"]
+            await self.remove_from_pending(curl)
+            self.currently_crawling = None
 
     async def init(self) -> None:
         """Initialize the frontier"""
