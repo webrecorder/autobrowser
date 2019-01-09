@@ -1,5 +1,6 @@
 """Abstract Base Classes That Defines An Interface For Remote Browser Tabs"""
 import asyncio
+import base64
 import logging
 from abc import ABCMeta, abstractmethod
 from asyncio import Task, AbstractEventLoop
@@ -25,6 +26,7 @@ logger = logging.getLogger("autobrowser")
 @attr.dataclass(slots=True, frozen=True)
 class TabEvents(object):
     """The events emitted by tab instances"""
+
     Closed: str = attr.ib(default="Tab:Closed")
 
 
@@ -270,6 +272,7 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         if self.reconnecting:
             self.stop_reconnecting()
         if self.client:
+            self.client.remove_all_listeners()
             await self.client.dispose()
             self.client = None
         self.emit(Tab.Events.Closed, TabClosedInfo(self.tab_id, self._close_reason))
@@ -288,6 +291,14 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         (provide implementation) for this method.
         """
         pass
+
+    async def capture_screenshot(self) -> bytes:
+        """Capture a screenshot (in png format) of the current page.
+
+        :return: The captured screenshot as bytes
+        """
+        result = await self.client.Page.captureScreenshot(format="png")
+        return base64.b64decode(result.get("data", b""))
 
     async def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         """Listener function for when the target has crashed.

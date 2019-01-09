@@ -2,16 +2,12 @@ import asyncio
 import logging
 import os
 
-import uvloop
-
 from autobrowser import (
     run_automation,
     SingleBrowserDriver,
     MultiBrowserDriver,
     build_automation_config,
 )
-
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 logger = logging.getLogger("autobrowser")
 logger.setLevel(logging.DEBUG)

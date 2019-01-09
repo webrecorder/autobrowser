@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import asyncio
 from asyncio import AbstractEventLoop
 from typing import Callable, Dict, List, Optional, Union

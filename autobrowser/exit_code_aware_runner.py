@@ -1,6 +1,7 @@
 """A modified asyncio.runners.run that ensures the process exits with a specific exit code"""
 import asyncio
 import logging
+import uvloop
 import sys
 from asyncio import coroutines, events, tasks
 from typing import Coroutine
@@ -9,15 +10,20 @@ __all__ = ["run_automation"]
 
 logger = logging.getLogger("autobrowser")
 
+if not isinstance(asyncio.get_event_loop_policy(), uvloop.EventLoopPolicy):
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
 
 def run_automation(main: Coroutine, *, debug: bool = False) -> None:
-    logger.info('run_automation: Running automation')
+    logger.info("run_automation: Running automation")
     sys.exit(_run(main, debug=debug))
 
 
 def _run(main: Coroutine, *, debug: bool = False):
     if events._get_running_loop() is not None:
-        raise RuntimeError("run_automation() cannot be called from a running event loop")
+        raise RuntimeError(
+            "run_automation() cannot be called from a running event loop"
+        )
 
     if not coroutines.iscoroutine(main):
         raise ValueError("a coroutine was expected, got {!r}".format(main))
@@ -28,10 +34,16 @@ def _run(main: Coroutine, *, debug: bool = False):
         logger.info(f"run_automation: exiting with code {result}")
         return result
     except Exception as e:
-        logger.exception('run_automation: While running an automation an exception was thrown', exc_info=e)
+        logger.exception(
+            "run_automation: While running an automation an exception was thrown",
+            exc_info=e,
+        )
         return 2
     except KeyboardInterrupt as e:
-        logger.exception('run_automation: While running an automation an KeyboardInterrupt happened', exc_info=e)
+        logger.exception(
+            "run_automation: While running an automation an KeyboardInterrupt happened",
+            exc_info=e,
+        )
         return 0
     finally:
         try:

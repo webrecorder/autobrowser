@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import asyncio
 from asyncio import AbstractEventLoop, Future, Task
 from typing import Optional, Set, Dict, List, Any

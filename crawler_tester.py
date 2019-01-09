@@ -20,6 +20,10 @@ MAYBE_ADDITIONAL_ARGS = [
     "--aggressive-cache-discard",
     "--aggressive-tab-discard",
     "--javascript-harmony",
+    "--enable-features=NetworkService,NetworkServiceInProcess",
+    "--enable-features=AwaitOptimization,brotli-encoding",
+    "--bypass-app-banner-engagement-checks",
+    "--disable-features=LazyFrameLoading"
 ]
 
 # https://cs.chromium.org/chromium/src/chrome/browser/flag_descriptions.cc?q=kAggressiveThreshold&dr=CSs&l=3491
@@ -107,7 +111,7 @@ async def reset_redis(redis: Redis):
     # )
 
 
-RESET_REDIS = True
+RESET_REDIS = False
 
 logger = logging.getLogger("autobrowser")
 logger.setLevel(logging.DEBUG)
