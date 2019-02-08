@@ -10,16 +10,16 @@ from simplechrome.errors import NavigationTimeoutError
 from simplechrome.frame_manager import FrameManager, Frame
 
 from autobrowser.automation import RedisKeys, CloseReason
-from autobrowser.behaviors import BehaviorManager
 from autobrowser.frontier import RedisFrontier
-from .basetab import Tab
+from autobrowser.util import Helper
+from .basetab import BaseTab
 
 __all__ = ["CrawlerTab"]
 
 logger = logging.getLogger("autobrowser")
 
 
-class CrawlerTab(Tab):
+class CrawlerTab(BaseTab):
     """Crawling specific tab.
 
     Env vars:
@@ -41,13 +41,13 @@ class CrawlerTab(Tab):
         self.clear_outlinks: str = "window.$wbOutlinkSet$.clear()"
         #: The frame manager for the page
         self.frame_manager: FrameManager = None
-        self.redis_keys = RedisKeys(self.browser.autoid)
+        self.redis_keys: RedisKeys = RedisKeys(self.browser.autoid)
         #: The crawling main loop
         self.crawl_loop: Optional[Task] = None
         self.frontier: RedisFrontier = RedisFrontier(self.redis, self.redis_keys)
         #: The maximum amount of time the crawler should run behaviors for
-        self._max_behavior_time: int = self.browser.info.max_behavior_time
-        self._navigation_timeout: int = self.browser.info.navigation_timeout
+        self._max_behavior_time: int = self.browser.automation_info.max_behavior_time
+        self._navigation_timeout: int = self.browser.automation_info.navigation_timeout
 
     @classmethod
     def create(cls, *args, **kwargs) -> "CrawlerTab":
@@ -57,7 +57,9 @@ class CrawlerTab(Tab):
     def main_frame(self) -> Frame:
         return self.frame_manager.mainFrame
 
-    async def goto(self, url: str, wait: str = "load", **kwargs: Any) -> bool:
+    async def goto(
+        self, url: str, wait: str = "load", *args: Any, **kwargs: Any
+    ) -> bool:
         """Navigate the browser to the supplied URL.
 
         :param url: The URL of the page to navigate to
@@ -119,7 +121,7 @@ class CrawlerTab(Tab):
         if self._graceful_shutdown:
             return
         self._url = self.main_frame.url
-        behavior = BehaviorManager.behavior_for_url(
+        behavior = await self.behavior_manager.behavior_for_url(
             self.main_frame.url, self, collect_outlinks=True
         )
         logger.info(f"CrawlerTab[crawl]: running behavior {behavior}")
@@ -140,7 +142,9 @@ class CrawlerTab(Tab):
                     f"CrawlerTab[run_behavior]: timed behavior to: {self._max_behavior_time}"
                 )
             except Exception as e:
-                logger.exception(f"CrawlerTab[run_behavior]: behavior threw an error", exc_info=e)
+                logger.exception(
+                    f"CrawlerTab[run_behavior]: behavior threw an error", exc_info=e
+                )
 
     async def init(self) -> None:
         """Initialize the crawler tab, if the crawler tab is already
@@ -150,7 +154,7 @@ class CrawlerTab(Tab):
         logger.info("CrawlerTab[init]: initializing")
         # must call super init
         await super().init()
-        if self.browser.info.net_cache_disabled:
+        if self.browser.automation_info.net_cache_disabled:
             await self.client.Network.setCacheDisabled(True)
         # enable receiving of frame lifecycle events for the frame manager
         await self.client.Page.setLifecycleEventsEnabled(True)
@@ -165,21 +169,22 @@ class CrawlerTab(Tab):
         ) as iin:
             await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
         await self.frontier.init()
-        if self.browser.info.wait_for_q:
-            await self.frontier.wait_for_populated_q(self.browser.info.wait_for_q)
+        if self.browser.automation_info.wait_for_q:
+            await self.frontier.wait_for_populated_q(
+                self.browser.automation_info.wait_for_q
+            )
         self.crawl_loop = self.loop.create_task(self.crawl())
         logger.info("CrawlerTab[init]: initialized")
-        await asyncio.sleep(0)
+        await Helper.one_tick_sleep()
 
     async def crawl(self) -> None:
-        frontier_state = (
-            "exhausted" if await self.frontier.exhausted() else "not exhausted"
-        )
+        frontier_exhausted = await self.frontier.exhausted()
+        frontier_state = "exhausted" if frontier_exhausted else "not exhausted"
         logger.info(
             f"CrawlerTab[crawl]: crawl loop starting and the frontier is {frontier_state}"
         )
         # loop until frontier is exhausted
-        while not await self.frontier.exhausted():
+        while not frontier_exhausted:
             if self._graceful_shutdown:
                 logger.info(
                     f"CrawlerTab[crawl]: got graceful_shutdown before crawling the url"
@@ -187,6 +192,7 @@ class CrawlerTab(Tab):
                 break
             n_url = await self.frontier.next_url()
             logger.info(f"CrawlerTab[crawl]: navigating to {n_url}")
+            # TODO(n0tan3rd): ensure we can detect connection closed here
             was_error = await self.goto(n_url)
             if was_error:
                 error_m = "an error"
@@ -196,14 +202,17 @@ class CrawlerTab(Tab):
 
             # maybe run a behavior
             await self.run_behavior()
-
-            await self.frontier.clear_pending()
+            await self.frontier.remove_current_from_pending()
+            frontier_exhausted = await self.frontier.exhausted()
 
             if self._graceful_shutdown:
                 logger.info(
                     f"CrawlerTab[crawl]: got graceful_shutdown after crawling the current url"
                 )
                 break
+            # we sleep for one event loop tick in order to ensure that other
+            # coroutines can do their thing if they are waiting. e.g. shutdowns etc
+            await Helper.one_tick_sleep()
         logger.info("CrawlerTab[crawl]: crawl is finished")
         if not self._graceful_shutdown:
             await self.close()
@@ -232,7 +241,8 @@ class CrawlerTab(Tab):
                 )
         logger.info("CrawlerTab[close]: crawl loop task ended")
         self.crawl_loop = None
-        if self._close_reason is None and await self.frontier.exhausted():
+        is_frontier_exhausted = await self.frontier.exhausted()
+        if self._close_reason is None and is_frontier_exhausted:
             self._close_reason = CloseReason.CRAWL_END
         await self.redis.sadd(self.redis_keys.auto_done, self.browser.reqid)
         await super().close()

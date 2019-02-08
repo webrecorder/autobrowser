@@ -1,51 +1,37 @@
-"""Abstract Base Classes That Defines An Interface For Remote Browser Tabs"""
+"""Abstract base classes that umplements the base functionality of a tab as defined by autobrowser.abcs.Tab"""
 import asyncio
 import base64
 import logging
-from abc import ABCMeta, abstractmethod
+from abc import ABC
 from asyncio import Task, AbstractEventLoop
-from typing import Optional, Dict, Any, TYPE_CHECKING, ClassVar
+from typing import Optional, Dict, Any
 
-import attr
 from aioredis import Redis
 from cripy import Client, connect
-from pyee import EventEmitter
 
-from autobrowser.automation import CloseReason, TabClosedInfo
+from autobrowser.abcs import BehaviorManager, Browser, Tab
+from autobrowser.automation import AutomationInfo, CloseReason, TabClosedInfo
 from autobrowser.behaviors.basebehavior import Behavior
-from autobrowser.util.netidle import monitor
+from autobrowser.util import Helper, monitor
 
-if TYPE_CHECKING:
-    from autobrowser.browser import Browser  # noqa: F401
-
-__all__ = ["Tab"]
+__all__ = ["BaseTab"]
 
 logger = logging.getLogger("autobrowser")
 
 
-@attr.dataclass(slots=True, frozen=True)
-class TabEvents(object):
-    """The events emitted by tab instances"""
-
-    Closed: str = attr.ib(default="Tab:Closed")
-
-
-class Tab(EventEmitter, metaclass=ABCMeta):
+class BaseTab(Tab, ABC):
     """Base Automation Tab Class that represents a browser tab in a running browser"""
-
-    Events: ClassVar[TabEvents] = TabEvents()
 
     def __init__(
         self,
-        browser: "Browser",
+        browser: Browser,
         tab_data: Dict[str, str],
         redis: Optional[Redis] = None,
-        **kwargs,
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
-        super().__init__(
-            loop=browser.loop if browser is not None else asyncio.get_event_loop()
-        )
-        self.browser: "Browser" = browser
+        super().__init__(loop=Helper.ensure_loop(browser.loop))
+        self.browser: Browser = browser
         self.redis = redis
         self.tab_data: Dict[str, str] = tab_data
         self.client: Client = None
@@ -71,6 +57,22 @@ class Tab(EventEmitter, metaclass=ABCMeta):
     def behaviors_paused(self) -> bool:
         """Are the behaviors paused"""
         return self._behaviors_paused
+
+    @property
+    def behavior_manager(self) -> BehaviorManager:
+        return self.browser.behavior_manager
+
+    @property
+    def automation_info(self) -> AutomationInfo:
+        return self.browser.automation_info
+
+    @property
+    def autoid(self) -> str:
+        return self.browser.autoid
+
+    @property
+    def reqid(self) -> str:
+        return self.browser.reqid
 
     @property
     def tab_id(self) -> str:
@@ -148,7 +150,7 @@ class Tab(EventEmitter, metaclass=ABCMeta):
             return
         await self._reconnect_promise
 
-    def net_idle(self, *args: Any, **kwargs: Any) -> Task:
+    def wait_for_net_idle(self, *args: Any, **kwargs: Any) -> Task:
         """Returns a future that  resolves once network idle occurs.
 
         See the options of autobrowser.util.netidle.monitor for a complete
@@ -190,7 +192,7 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         )
         return results.get("result", {}).get("value")
 
-    async def goto(self, url: str, **kwargs: Any) -> Dict:
+    async def goto(self, url: str, *args: Any, **kwargs: Any) -> Any:
         """Initiates browser navigation to the supplied url.
 
         See cripy.protocol.Page for more information about additional
@@ -202,16 +204,6 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         """
         logger.info(f"{self._clz_name}[goto]: navigating to {url}")
         return await self.client.Page.navigate(url, **kwargs)
-
-    @classmethod
-    @abstractmethod
-    def create(cls, *args: Any, **kwargs: Any) -> "Tab":
-        """Abstract method for creating new instances of a tab.
-
-        Subclasses are expected to supply the means for creating
-        themselves their implementation
-        """
-        pass
 
     async def connect_to_tab(self) -> None:
         """Initializes the connection to the remote browser tab and
@@ -237,10 +229,8 @@ class Tab(EventEmitter, metaclass=ABCMeta):
             self.client.Runtime.enable(),
             loop=self.loop,
         )
-
         logger.info(f"{self._clz_name}[init]: enabled domains")
 
-    @abstractmethod
     async def init(self) -> None:
         """Initialize the client connection to the tab.
 
@@ -254,7 +244,6 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         await self.connect_to_tab()
         self._running = True
 
-    @abstractmethod
     async def close(self) -> None:
         """Close the client connection to the tab.
 
@@ -275,7 +264,7 @@ class Tab(EventEmitter, metaclass=ABCMeta):
             self.client.remove_all_listeners()
             await self.client.dispose()
             self.client = None
-        self.emit(Tab.Events.Closed, TabClosedInfo(self.tab_id, self._close_reason))
+        self.emit(BaseTab.Events.Closed, TabClosedInfo(self.tab_id, self._close_reason))
 
     async def shutdown_gracefully(self) -> None:
         """Initiates the graceful shutdown of the tab"""
@@ -283,14 +272,6 @@ class Tab(EventEmitter, metaclass=ABCMeta):
         self._graceful_shutdown = True
         await self.close()
         logger.info(f"{self._clz_name}[shutdown_gracefully]: shutdown complete")
-
-    async def collect_outlinks(self) -> None:
-        """Collect outlinks from the remote tab somehow.
-
-        Only tabs that require the extraction of outlinks should override
-        (provide implementation) for this method.
-        """
-        pass
 
     async def capture_screenshot(self) -> bytes:
         """Capture a screenshot (in png format) of the current page.

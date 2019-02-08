@@ -2,15 +2,14 @@ import asyncio
 import logging
 from typing import Any
 
-from autobrowser.behaviors.behavior_manager import BehaviorManager
-from .basetab import Tab
+from .basetab import BaseTab
 
 __all__ = ["BehaviorTab"]
 
 logger = logging.getLogger("autobrowser")
 
 
-class BehaviorTab(Tab):
+class BehaviorTab(BaseTab):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._page_url_expression: str = "window.location.href"
@@ -37,7 +36,7 @@ class BehaviorTab(Tab):
             await self._ensure_behavior_run_task_end()
             self._curr_behavior_url = url
             logger.debug(f"BehaviorTab[resume_behaviors]: Restarting behavior")
-            self._run_behavior_for_current_url()
+            await self._run_behavior_for_current_url()
         logger.debug(f"BehaviorTab[resume_behaviors]: Behavior resumed")
 
     async def init(self) -> None:
@@ -52,17 +51,6 @@ class BehaviorTab(Tab):
         await self._ensure_behavior_run_task_end()
         await super().close()
 
-    @classmethod
-    def create(cls, *args, **kwargs) -> "BehaviorTab":
-        return cls(*args, **kwargs)
-
-    def _run_behavior_for_current_url(self) -> None:
-        behavior = BehaviorManager.behavior_for_url(self._curr_behavior_url, self)
-        logger.debug(
-            f"BehaviorTab[_run_behavior_for_current_url]: starting behavior {behavior} for {self._curr_behavior_url}"
-        )
-        self._behavior_run_task = self.loop.create_task(behavior.run())
-
     async def _ensure_behavior_run_task_end(self) -> None:
         if self._behavior_run_task is not None and not self._behavior_run_task.done():
             logger.debug(
@@ -74,3 +62,16 @@ class BehaviorTab(Tab):
             except asyncio.CancelledError:
                 pass
             self._behavior_run_task = None
+
+    @classmethod
+    def create(cls, *args, **kwargs) -> "BehaviorTab":
+        return cls(*args, **kwargs)
+
+    async def _run_behavior_for_current_url(self) -> None:
+        behavior = await self.behavior_manager.behavior_for_url(
+            self._curr_behavior_url, self
+        )
+        logger.debug(
+            f"BehaviorTab[_run_behavior_for_current_url]: starting behavior {behavior} for {self._curr_behavior_url}"
+        )
+        self._behavior_run_task = self.loop.create_task(behavior.run())

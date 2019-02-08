@@ -1,36 +1,27 @@
 import asyncio
 import logging
 from asyncio import AbstractEventLoop
-from typing import ClassVar, Dict, List, Optional
+from typing import Dict, List, Optional
 
-import attr
-from pyee import EventEmitter
 from redis import Redis
 
 from autobrowser.automation import (
     AutomationInfo,
     BrowserExitInfo,
-    TabClosedInfo,
     CloseReason,
+    TabClosedInfo,
 )
-from .tabs import create_tab, Tab
-from .util.helper import Helper
+from autobrowser.abcs import BehaviorManager, Browser, Tab
+from autobrowser.tabs import create_tab
+from autobrowser.util import Helper
 
-__all__ = ["Browser"]
+__all__ = ["Chrome"]
 
 logger = logging.getLogger("autobrowser")
 
 
-@attr.dataclass(slots=True, frozen=True)
-class BrowserEvents(object):
-    """The events emitted by browser instances"""
-    Exiting: str = attr.ib(default="Browser:Exit")
-
-
-class Browser(EventEmitter):
+class Chrome(Browser):
     """The Browser class represents a remote Chrome browser and N tabs"""
-
-    Events: ClassVar[BrowserEvents] = BrowserEvents()
 
     def __init__(
         self,
@@ -44,7 +35,7 @@ class Browser(EventEmitter):
         :param redis: Optional instance of redis to use
         """
         super().__init__(loop=Helper.ensure_loop(loop))
-        self.info: AutomationInfo = info
+        self._info: AutomationInfo = info
         self.tab_datas: List[Dict] = None
         self.redis: Optional[Redis] = redis
         self.tabs: Dict[str, Tab] = dict()
@@ -54,13 +45,21 @@ class Browser(EventEmitter):
     @property
     def autoid(self) -> str:
         """Retrieve the automation id of the running automation"""
-        return self.info.autoid
+        return self._info.autoid
 
     @property
     def reqid(self) -> str:
         """Retrieve the request id for this process of the running
         automation"""
-        return self.info.reqid
+        return self._info.reqid
+
+    @property
+    def automation_info(self) -> AutomationInfo:
+        return self._info
+
+    @property
+    def behavior_manager(self) -> BehaviorManager:
+        return self._info.behavior_manager
 
     @property
     def loop(self) -> AbstractEventLoop:
@@ -90,7 +89,7 @@ class Browser(EventEmitter):
         """
         if self.running:
             return
-        logger.info(f"Browser[reinit]: autoid = {self.info.autoid}")
+        logger.info(f"Browser[reinit]: autoid = {self._info.autoid}")
         await self.init(tab_data)
 
     async def close(self, gracefully: bool = False) -> None:
@@ -107,8 +106,8 @@ class Browser(EventEmitter):
         await self._clear_tabs(gracefully)
         logger.info(f"Browser[close(gracefully={gracefully})]: closed")
         self.emit(
-            Browser.Events.Exiting,
-            BrowserExitInfo(self.info, list(self.tab_closed_reasons.values())),
+            Chrome.Events.Exiting,
+            BrowserExitInfo(self._info, list(self.tab_closed_reasons.values())),
         )
 
     async def shutdown_gracefully(self) -> None:
@@ -127,7 +126,7 @@ class Browser(EventEmitter):
         tab = self.tabs.pop(info.tab_id, None)
         if tab is None:
             logger.info(
-                f"Browser[_tab_closed]: Tab(tab_id={tab.tab_id}) already removed"
+                f"Browser[_tab_closed]: Tab(tab_id={info.tab_id}) already removed"
             )
             return
         logger.info(f"Browser[_tab_closed]: removing Tab(tab_id={tab.tab_id})")
@@ -158,7 +157,7 @@ class Browser(EventEmitter):
         self.tabs.clear()
 
     def __str__(self) -> str:
-        return f"Browser(info={self.info}, tabs={self.tabs}, running={self.running})"
+        return f"ChromeBrowser(info={self._info}, tabs={self.tabs}, running={self.running})"
 
     def __repr__(self) -> str:
         return self.__str__()

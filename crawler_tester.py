@@ -9,7 +9,7 @@ from aioredis import Redis
 
 from autobrowser import build_automation_config, LocalBrowserDiver, run_automation
 
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+uvloop.install()
 
 CHROME = "google-chrome-unstable"  # aka chrome canary
 
@@ -34,6 +34,7 @@ DEFAULT_ARGS = [
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--disable-ipc-flooding-protection",
+    '--enable-features=NetworkService,NetworkServiceInProcess,brotli-encoding',
     "--disable-client-side-phishing-detection",
     "--disable-default-apps",
     "--disable-extensions",
@@ -41,10 +42,9 @@ DEFAULT_ARGS = [
     "--disable-hang-monitor",
     "--disable-prompt-on-repost",
     "--disable-sync",
-    "--disable-translate",
     "--disable-domain-reliability",
     "--disable-infobars",
-    "--disable-features=site-per-process",
+    "--disable-features=site-per-process,TranslateUI,LazyFrameLoading",
     "--disable-breakpad",
     "--disable-backing-store-limit",
     "--metrics-recording-only",
@@ -58,7 +58,7 @@ DEFAULT_ARGS = [
 ]
 
 
-dummy_auto_id = "123"
+dummy_auto_id = "321"
 info_key = f"a:{dummy_auto_id}:info"
 scope_key = f"a:{dummy_auto_id}:scope"
 seen_key = f"a:{dummy_auto_id}:seen"
@@ -111,7 +111,7 @@ async def reset_redis(redis: Redis):
     # )
 
 
-RESET_REDIS = False
+RESET_REDIS = True
 
 logger = logging.getLogger("autobrowser")
 logger.setLevel(logging.DEBUG)
@@ -132,7 +132,7 @@ async def crawl_baby_crawl() -> int:
     local_driver = LocalBrowserDiver(
         conf=build_automation_config(
             autoid=dummy_auto_id,
-            reqid="abc123",
+            reqid="abc321",
             chrome_opts=dict(launch=True, exe=CHROME, args=DEFAULT_ARGS),
             tab_type="CrawlerTab",
         ),

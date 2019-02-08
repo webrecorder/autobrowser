@@ -1,8 +1,9 @@
 import asyncio
+from asyncio import sleep as aio_sleep, gather as aio_gather
 import logging
-import ujson
+from ujson import dumps as ujson_dumps, loads as ujson_loads
 from asyncio import AbstractEventLoop
-from typing import List, Awaitable, ClassVar, Dict, Union, Iterable
+from typing import Any, Awaitable, ClassVar, Dict, List, Iterable, Union
 
 import attr
 from aioredis import Redis
@@ -14,6 +15,8 @@ from autobrowser.scope import RedisScope
 __all__ = ["RedisFrontier"]
 
 logger = logging.getLogger("autobrowser")
+
+log_info = logger.info
 
 
 @attr.dataclass(slots=True)
@@ -36,14 +39,17 @@ class RedisFrontier(object):
 
         :param wait_time: The interval time in seconds for polling exhausted. Defaults to 60
         """
-        logger.info(
+        log_info(
             f"RedisFrontier[wait_for_populated_q]: starting wait loop, checking every {wait_time} seconds"
         )
-        while await self.exhausted():
-            logger.info(
+        is_frontier_exhausted = self.exhausted
+        frontier_exhausted = await is_frontier_exhausted()
+        while frontier_exhausted:
+            log_info(
                 f"RedisFrontier[wait_for_populated_q]: q still empty, waiting another {wait_time} seconds"
             )
-            await asyncio.sleep(wait_time, loop=self.loop)
+            await aio_sleep(wait_time, loop=self.loop)
+            frontier_exhausted = await is_frontier_exhausted()
         q_len = await self.q_len()
         logger.info(
             f"RedisFrontier[wait_for_populated_q]: q populated with {q_len} URLs"
@@ -62,22 +68,22 @@ class RedisFrontier(object):
     async def exhausted(self) -> bool:
         """Returns a boolean that indicates if the frontier is exhausted or not"""
         qlen = await self.redis.llen(self.keys.queue)
-        logger.info(f"RedisFrontier[exhausted]: len(queue) = {qlen}")
+        log_info(f"RedisFrontier[exhausted]: len(queue) = {qlen}")
         return qlen == 0
 
     async def is_seen(self, url: str) -> bool:
         """Returns an Awaitable that resolves with a boolean that indicates if the supplied URL has been seen or not"""
         return await self.redis.sismember(self.keys.seen, url) == 1
 
-    def add_to_pending(self, url: str) -> Awaitable[None]:
+    def add_to_pending(self, url: str) -> Awaitable[Any]:
         """Add the supplied URL to the pending set
 
         :param url: The URL to add to the pending set
         """
-        logger.info(f"RedisFrontier[add_to_pending]: Adding {url} to the pending set")
+        log_info(f"RedisFrontier[add_to_pending]: Adding {url} to the pending set")
         return self.redis.sadd(self.keys.pending, url)
 
-    def remove_from_pending(self, url: str) -> Awaitable[None]:
+    def remove_from_pending(self, url: str) -> Awaitable[Any]:
         """Remove the supplied URL from the pending set
 
         :param url: The URL to be removed from the pending set
@@ -86,7 +92,7 @@ class RedisFrontier(object):
 
     async def _pop_url(self) -> Dict[str, Union[str, int]]:
         udict_str = await self.redis.lpop(self.keys.queue)
-        return ujson.loads(udict_str)
+        return ujson_loads(udict_str)
 
     async def next_url(self) -> str:
         """Retrieve the next URL to be crawled from the frontier and updates the pending set
@@ -94,17 +100,15 @@ class RedisFrontier(object):
         :return: The next URL to be crawled
         """
         self.currently_crawling = await self._pop_url()
-        logger.info(
-            f"RedisFrontier[next_url]: the next URL is {self.currently_crawling}"
-        )
+        log_info(f"RedisFrontier[next_url]: the next URL is {self.currently_crawling}")
         await self.add_to_pending(self.currently_crawling["url"])
         return self.currently_crawling["url"]
 
-    async def clear_pending(self) -> None:
+    async def remove_current_from_pending(self) -> None:
         """If currently_crawling url is set, remove it from pending set
         """
         if self.currently_crawling is not None:
-            logger.info(
+            log_info(
                 f"RedisFrontier[next_url]: removing the previous URL {self.currently_crawling} from the pending set"
             )
             curl: str = self.currently_crawling["url"]
@@ -116,7 +120,7 @@ class RedisFrontier(object):
         self.crawl_depth = int(
             await self.redis.hget(self.keys.info, self.CRAWL_DEPTH_FIELD) or 0
         )
-        logger.info(f"RedisFrontier[init]: crawl depth = {self.crawl_depth}")
+        log_info(f"RedisFrontier[init]: crawl depth = {self.crawl_depth}")
         await self.scope.init()
 
     async def add(self, url: str, depth: int) -> None:
@@ -128,10 +132,11 @@ class RedisFrontier(object):
         :param depth: The depth the URL is to be crawled at
         """
         should_add = self.scope.in_scope(url)
-        if should_add and not await self.is_seen(url):
-            await asyncio.gather(
+        is_seen = await self.is_seen(url)
+        if should_add and not is_seen:
+            await aio_gather(
                 self.redis.rpush(
-                    self.keys.queue, ujson.dumps(dict(url=url, depth=depth))
+                    self.keys.queue, ujson_dumps(dict(url=url, depth=depth))
                 ),
                 self.redis.sadd(self.keys.seen, url),
                 loop=self.loop,
@@ -151,23 +156,30 @@ class RedisFrontier(object):
         )
         if next_depth > self.crawl_depth:
             return
-        add_to_seen: List[str] = []
-        add_to_queue: List[str] = []
+        seen_list: List[str] = []
+        urls_to_q: List[str] = []
+
+        # https://wiki.python.org/moin/PythonSpeed/PerformanceTips: Avoiding dots...
+        is_url_seen = self.is_seen
+        is_url_in_scope = self.scope.in_scope
+        add_to_seen = seen_list.append
+        add_to_q = urls_to_q.append
+
         for url in urls:
-            is_seen = await self.is_seen(url)
-            in_scope = self.scope.in_scope(url)
-            logger.info(
+            is_seen = await is_url_seen(url)
+            in_scope = is_url_in_scope(url)
+            log_info(
                 f'RedisFrontier[add_all]: {{"url": "{url}", "seen": '
                 f'{is_seen}, "in_scope": {in_scope}, "depth": {next_depth}}}'
             )
             if in_scope and not is_seen:
-                add_to_seen.append(url)
-                add_to_queue.append(ujson.dumps(dict(url=url, depth=next_depth)))
-        qlen = len(add_to_queue)
-        logger.info(f"RedisFrontier[add_all]: adding {qlen} urls to the frontier")
+                add_to_seen(url)
+                add_to_q(ujson_dumps(dict(url=url, depth=next_depth)))
+        qlen = len(urls_to_q)
+        log_info(f"RedisFrontier[add_all]: adding {qlen} urls to the frontier")
         if qlen > 0:
-            await asyncio.gather(
-                self.redis.rpush(self.keys.queue, *add_to_queue),
-                self.redis.sadd(self.keys.seen, *add_to_seen),
+            await aio_gather(
+                self.redis.rpush(self.keys.queue, *urls_to_q),
+                self.redis.sadd(self.keys.seen, *seen_list),
                 loop=self.loop,
             )

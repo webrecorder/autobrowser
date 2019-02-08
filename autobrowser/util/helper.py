@@ -1,7 +1,9 @@
 import asyncio
+import ujson
 from asyncio import AbstractEventLoop
-from typing import Callable, Dict, List, Optional, Union
+from typing import Awaitable, Callable, Dict, List, Optional, Union
 
+from aiohttp import ClientSession, TCPConnector, AsyncResolver
 from pyee import EventEmitter
 
 __all__ = ["Helper", "ListenerDict"]
@@ -35,9 +37,9 @@ class Helper(object):
         :param listeners: List of dictionaries returned by add_event_listener
         """
         for listener in listeners:
-            emitter = listener["emitter"]  # type: EventEmitter
-            event_name = listener["eventName"]  # type: str
-            handler = listener["handler"]  # type: Callable
+            emitter: EventEmitter = listener["emitter"]
+            event_name: str = listener["eventName"]
+            handler: Callable = listener["handler"]
             emitter.remove_listener(event_name, handler)
         listeners.clear()
 
@@ -46,3 +48,21 @@ class Helper(object):
         if loop is not None:
             return loop
         return asyncio.get_event_loop()
+
+    @staticmethod
+    def create_aio_http_client_session(
+        loop: Optional[AbstractEventLoop] = None
+    ) -> ClientSession:
+        eloop = Helper.ensure_loop(loop)
+        return ClientSession(
+            connector=TCPConnector(resolver=AsyncResolver(loop=eloop), loop=eloop),
+            json_serialize=ujson.dumps,
+            loop=eloop,
+        )
+
+    @staticmethod
+    def one_tick_sleep() -> Awaitable[None]:
+        """Returns an awaitable to resolves on the next event loop tick
+        :return: Awaitable that
+        """
+        return asyncio.sleep(0)

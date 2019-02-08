@@ -8,16 +8,16 @@ from async_timeout import timeout
 from cripy import CDP, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_URL
 
 from autobrowser.automation import AutomationConfig, AutomationInfo, BrowserExitInfo
-from autobrowser.browser import Browser
+from autobrowser.chrome_browser import Chrome
 from autobrowser.errors import DriverError
-from .basedriver import Driver
+from .basedriver import BaseDriver
 
 logger = logging.getLogger("autobrowser")
 
 __all__ = ["LocalBrowserDiver"]
 
 
-class LocalBrowserDiver(Driver):
+class LocalBrowserDiver(BaseDriver):
     """A driver class for running an automation using browsers installed locally"""
 
     def __init__(
@@ -25,7 +25,7 @@ class LocalBrowserDiver(Driver):
     ) -> None:
         super().__init__(conf, loop)
         self.chrome_process: Optional[Process] = None
-        self.browser: Browser = None
+        self.browser: Chrome = None
 
     def _make_connect_opts(self) -> Dict:
         connect = self.conf.get("chrome_opts").get("connect", {})
@@ -78,15 +78,17 @@ class LocalBrowserDiver(Driver):
         if len(tabs) == 0:
             await self.clean_up()
             raise DriverError("No Tabs Were Found To Connect To")
-        self.browser = Browser(
+        self.browser = Chrome(
             info=AutomationInfo(
                 autoid=self.conf.get("autoid", ""),
                 reqid=self.conf.get("reqid", ""),
                 tab_type=self.conf.get("tab_type"),
+                behavior_manager=self.behavior_manager,
             ),
             loop=self.loop,
             redis=self.redis,
         )
+        self.browser.on(Chrome.Events.Exiting, self.on_browser_exit)
         await self.browser.init(tabs)
 
     async def clean_up(self) -> None:

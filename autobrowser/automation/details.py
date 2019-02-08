@@ -1,20 +1,24 @@
 import socket
-from typing import Dict, Optional, Any, List
+from typing import Any, Counter as CounterT, Dict, List, Optional, TYPE_CHECKING
 from collections import Counter
 from enum import Enum, auto
 import attr
 import os
 import ujson
 
+
+if TYPE_CHECKING:
+    from autobrowser.abcs import BehaviorManager
+
 __all__ = [
-    "AutomationInfo",
     "AutomationConfig",
+    "AutomationInfo",
     "BrowserExitInfo",
-    "build_automation_config",
     "CloseReason",
-    "exit_code_from_reason",
     "RedisKeys",
     "TabClosedInfo",
+    "build_automation_config",
+    "exit_code_from_reason",
 ]
 
 
@@ -51,6 +55,13 @@ def build_automation_config(
         navigation_timeout=int(os.environ.get("NAV_TO", 30)),
         net_cache_disabled=bool(os.environ.get("CRAWL_NO_NETCACHE")),
         wait_for_q=int(os.environ.get("WAIT_FOR_Q", 0)),
+        behavior_api_url=os.environ.get("BEHAVIOR_API_URL", "http://localhost:3030"),
+        fetch_behavior_endpoint=os.environ.get(
+            "FETCH_BEHAVIOR_ENDPOINT", "http://localhost:3030/behavior?url="
+        ),
+        fetch_behavior_info_endpoint=os.environ.get(
+            "FETCH_BEHAVIOR_INFO_ENDPOINT", "http://localhost:3030/info?url="
+        ),
     )
 
     if options is not None:
@@ -66,6 +77,8 @@ class AutomationInfo(object):
     """A class containing all the information pertaining to the running automation
     as far as browsers and tabs are concerned
     """
+
+    behavior_manager: "BehaviorManager" = attr.ib()
 
     #: Which tab class is to be used
     tab_type: str = attr.ib(
@@ -156,11 +169,10 @@ class BrowserExitInfo(object):
             return 0
         elif tcr_len == 1:
             return exit_code_from_reason(self.tab_closed_reasons[0].reason)
-        tcr_counter = Counter()
+        tcr_counter: CounterT[CloseReason] = Counter()
         for tcr in self.tab_closed_reasons:
             tcr_counter[tcr.reason] += 1
         exit_reason, count = max(
             tcr_counter.items(), key=lambda reason_count: reason_count[1]
         )
         return exit_code_from_reason(exit_reason)
-

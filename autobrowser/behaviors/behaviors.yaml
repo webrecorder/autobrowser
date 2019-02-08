@@ -1,70 +1,69 @@
 matching:
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedNetIdle'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
       resource: 'twitterTimeline.js'
     match:
       regex: "^https://(www.)?twitter.com/[^/]+$"
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedNetIdle'
-    init:
-      resource: 'twitterHashTags.js'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
+    resource: 'twitterHashTags.js'
     match:
       regex: "^https://(www.)?twitter.com/hashtag/[^?]+[?](?:vertical=default&)?src=hash$"
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedNetIdle'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
       resource: 'twitterHashTags.js'
     match:
       regex: "^https://(www.)?twitter.com/hashtag/[^?]+[?]f=tweets.+$"
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedBehavior'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
       resource: 'facebookNewsFeed.js'
     match:
       regex: "^https://(www.)?facebook.com(/)?([?]sk=nf)?$"
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedBehavior'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
       resource: 'facebookUserFeed.js'
     match:
       regex: "^https://(www.)?facebook.com/[^/]+/?$"
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedBehavior'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
       resource: 'instagramUser.js'
     match:
       regex: "^https://(www.)?instagram.com/[^/]+(/)?$"
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedNetIdle'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
       resource: 'soundcloudArtist.js'
     match:
       regex: "^https://(www.)?soundcloud.com/[^/]+(/)?$"
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedNetIdle'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
       resouce: 'soundCloudEmbed.js'
     match:
       regex: '^https://w.soundcloud.com/player/?visual=true&url=.+'
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedBehavior'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
       resource: 'youtubeVideo.js'
     match:
       regex: '^https://(www.)?youtube.com/watch[?]v=.+'
   - handler:
-      module: 'timeline_feeds'
-      class: 'TimelineFeedBehavior'
+      module: 'behavior_runners'
+      class: 'DefaultBehaviorRunner'
     init:
         resource: 'slideShare.js'
     match:
@@ -74,5 +73,5 @@ default:
     resource: 'autoscroll.js'
     pre_init: false
   handler:
-    module: 'scroll'
-    class: 'AutoScrollBehavior'
+    module: 'behavior_runners'
+    class: 'DefaultBehaviorRunner'

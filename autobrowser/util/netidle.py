@@ -34,7 +34,7 @@ class NetworkIdleMonitor(EventEmitter):
         network idle
         :param loop:
         """
-        super().__init__(loop=loop if loop is not None else asyncio.get_event_loop())
+        super().__init__(loop=Helper.ensure_loop(loop))
         self.client: Client = client
         self.requestIds: Set[str] = set()
         self.num_inflight: int = num_inflight
@@ -193,5 +193,5 @@ def monitor(
         num_inflight=num_inflight,
         idle_time=idle_time,
         global_wait=global_wait,
-        loop=loop
+        loop=loop,
     )

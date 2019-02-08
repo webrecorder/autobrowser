@@ -1,9 +1,9 @@
-from .basedriver import Driver
+from .basedriver import BaseDriver
 from .local import LocalBrowserDiver
 from .shepherd import SingleBrowserDriver, ShepherdDriver, MultiBrowserDriver
 
 __all__ = [
-    "Driver",
+    "BaseDriver",
     "LocalBrowserDiver",
     "MultiBrowserDriver",
     "ShepherdDriver",

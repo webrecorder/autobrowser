@@ -30,5 +30,3 @@ class Scope(object):
             if usurt.startswith(surt):
                 return True
         return False
-
-

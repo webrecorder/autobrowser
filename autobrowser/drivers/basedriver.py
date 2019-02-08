@@ -1,41 +1,25 @@
-import asyncio
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from asyncio import AbstractEventLoop
 from collections import Counter
-from typing import List, Optional
+from typing import Counter as CounterT, List, Optional
 
 import aioredis
+from aiohttp import ClientSession
 from aioredis import Redis
 
-from autobrowser.automation import (
-    AutomationConfig,
-    BrowserExitInfo,
-    ShutdownCondition,
-)
-from autobrowser.browser import Browser
+from autobrowser.abcs import Driver
+from autobrowser.automation import AutomationConfig, BrowserExitInfo, ShutdownCondition
+from autobrowser.behaviors import RemoteBehaviorManager
+from autobrowser.chrome_browser import Chrome
+from autobrowser.util import Helper
 
-__all__ = ["Driver"]
+__all__ = ["BaseDriver"]
 
 logger = logging.getLogger("autobrowser")
 
 
-class Driver(ABC):
-    """Abstract base driver class that defines a common interface for all
-    driver implementations and is responsible for managing the redis connection.
-
-    Drivers have the following lifecycle:
-     - await init: initialize all dependant resources
-     - await shutdown_condition: all browsers have exited or signal received
-     - await shutdown: clean up all initialized resources and return an exit code
-
-     Driver subclasses are expected to not override the run method directly
-     but rather override one or more of the following lifecycle methods:
-      - init
-      - clean_up
-      - shutdown
-    """
-
+class BaseDriver(Driver, ABC):
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
@@ -45,9 +29,15 @@ class Driver(ABC):
         :param loop: The event loop to be used
         """
         self.conf: AutomationConfig = conf
-        self.loop: AbstractEventLoop = loop if loop is not None else asyncio.get_event_loop()
+        self.loop: AbstractEventLoop = Helper.ensure_loop(loop)
         self.did_init: bool = False
         self.shutdown_condition: ShutdownCondition = ShutdownCondition(loop=self.loop)
+        self.session: ClientSession = Helper.create_aio_http_client_session(loop)
+        self.behavior_manager: RemoteBehaviorManager = RemoteBehaviorManager(
+            behavior_endpoint=self.conf.get("fetch_behavior_endpoint"),
+            behavior_info_endpoint=self.conf.get("fetch_behavior_info_endpoint"),
+            session=self.session,
+        )
         self.redis: Redis = None
         self._class_name: str = self.__class__.__name__
         self._browser_exit_infos: List[BrowserExitInfo] = []
@@ -73,6 +63,8 @@ class Driver(ABC):
         self.redis.close()
         await self.redis.wait_closed()
         self.redis = None
+        await self.session.close()
+        self.behavior_manager = None
         logger.info(f"{self._class_name}[clean_up]: closed redis connection")
 
     async def run(self) -> int:
@@ -94,7 +86,7 @@ class Driver(ABC):
         logger.info(f"{self._class_name}[run]: shutdown condition met")
         return await self.shutdown()
 
-    async def gracefully_shutdown_browser(self, browser: Browser) -> None:
+    async def gracefully_shutdown_browser(self, browser: Chrome) -> None:
         """Gracefully shutdowns a browser and adds its exit info to
         the list of browser exit infos.
 
@@ -103,7 +95,7 @@ class Driver(ABC):
         browser.remove_all_listeners()
         future_exit_info = self.loop.create_future()
         browser.once(
-            Browser.Events.Exiting, lambda info: future_exit_info.set_result(info)
+            Chrome.Events.Exiting, lambda info: future_exit_info.set_result(info)
         )
         await browser.shutdown_gracefully()
         self._browser_exit_infos.append(await future_exit_info)
@@ -124,17 +116,25 @@ class Driver(ABC):
         :return: An exit code based on the exit info's of the browsers
         """
         if self.shutdown_condition.shutdown_from_signal:
-            logger.info(f"{self._class_name}[determine_exit_code]: exit code 1, shutdown from signal")
+            logger.info(
+                f"{self._class_name}[determine_exit_code]: exit code 1, shutdown from signal"
+            )
             return 1
         beis_len = len(self._browser_exit_infos)
         if beis_len == 0:
-            logger.info(f"{self._class_name}[determine_exit_code]: exit code 0, no browser exit info")
+            logger.info(
+                f"{self._class_name}[determine_exit_code]: exit code 0, no browser exit info"
+            )
             return 0
         elif beis_len == 1:
-            logger.info(f"{self._class_name}[determine_exit_code]: 1 browser exit info, using its exit code")
+            logger.info(
+                f"{self._class_name}[determine_exit_code]: 1 browser exit info, using its exit code"
+            )
             return self._browser_exit_infos[0].exit_reason_code()
-        logger.info(f"{self._class_name}[determine_exit_code]: {beis_len} browser exit infos, using their exit code")
-        browser_exit_counter = Counter()
+        logger.info(
+            f"{self._class_name}[determine_exit_code]: {beis_len} browser exit infos, using their exit code"
+        )
+        browser_exit_counter: CounterT[int] = Counter()
         for bei in self._browser_exit_infos:
             browser_exit_counter[bei.exit_reason_code()] += 1
         exit_code, count = max(
@@ -149,22 +149,3 @@ class Driver(ABC):
         rather than calling :func:`~basedriver.Driver.shutdown` directly
         """
         self.shutdown_condition.initiate_shutdown()
-
-    @abstractmethod
-    async def shutdown(self) -> int:
-        """Stop the driver from running and perform
-        any necessary cleanup required before exiting
-
-        :return: The exit code determined by `determine_exit_code`
-        """
-        pass
-
-    @abstractmethod
-    def on_browser_exit(self, info: BrowserExitInfo) -> None:
-        """Method used as the listener for when a browser
-        exits abnormally
-
-        :param info: BrowserExitInfo about the browser
-        that exited
-        """
-        pass

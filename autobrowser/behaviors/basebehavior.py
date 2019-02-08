@@ -3,14 +3,23 @@ import logging
 from abc import ABC, abstractmethod
 from asyncio import Task, AbstractEventLoop
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Optional, ClassVar, Union, TYPE_CHECKING
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    Optional,
+    ClassVar,
+    Union,
+    TYPE_CHECKING,
+)
 
 import aiofiles
 import attr
 from simplechrome.frame_manager import Frame
 
 if TYPE_CHECKING:
-    from ..tabs.basetab import Tab  # noqa: F401
+    from ..tabs.basetab import BaseTab  # noqa: F401
 
 
 __all__ = ["Behavior", "JSBasedBehavior"]
@@ -33,7 +42,7 @@ class Behavior(ABC):
      - action loop -> while(not done): perform_action
     """
 
-    tab: "Tab" = attr.ib()
+    tab: "BaseTab" = attr.ib()
     conf: Dict = attr.ib(factory=dict)
     collect_outlinks: bool = attr.ib(default=False)
     frame: Optional[Union[Frame, Callable[[], Frame]]] = attr.ib(default=None)
@@ -160,7 +169,10 @@ class Behavior(ABC):
                     await asyncio.sleep(0)
             logger.info(f"{self._clz_name}[run]: behavior done")
         except Exception as e:
-            logger.exception(f"{self._clz_name}[run]: while running an exception was raised", exc_info=e)
+            logger.exception(
+                f"{self._clz_name}[run]: while running an exception was raised",
+                exc_info=e,
+            )
             raise
         finally:
             self.tab.unset_running_behavior(self)

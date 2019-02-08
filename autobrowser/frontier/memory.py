@@ -5,7 +5,7 @@ import attr
 
 from autobrowser.scope import Scope
 
-__all__ = ['Frontier']
+__all__ = ["Frontier"]
 
 
 logger = logging.getLogger("autobrowser")
@@ -50,5 +50,3 @@ class Frontier(object):
             frontier.queue.append((url, 0))
             frontier.seen.add(url)
         return frontier
-
-

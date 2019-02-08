@@ -5,13 +5,12 @@ from abc import ABC
 from asyncio import AbstractEventLoop, Task
 from typing import Optional, List, Dict, Any, Union
 
-from aiohttp import ClientSession, TCPConnector, AsyncResolver
 from aioredis import Channel
 
 from autobrowser.automation import AutomationConfig, AutomationInfo, BrowserExitInfo
-from autobrowser.browser import Browser
+from autobrowser.chrome_browser import Chrome
 from autobrowser.errors import BrowserStagingError
-from .basedriver import Driver
+from .basedriver import BaseDriver
 
 __all__ = [
     "CDP_JSON",
@@ -35,7 +34,7 @@ GET_BROWSER_INFO_URL: str = "/info/{reqid}"
 WAIT_TIME: float = 0.5
 
 
-class ShepherdDriver(Driver, ABC):
+class ShepherdDriver(BaseDriver, ABC):
     """An abstract base driver class for using browsers managed by shepherd"""
 
     def __init__(
@@ -45,11 +44,6 @@ class ShepherdDriver(Driver, ABC):
         self.browser_info_url: str = self.conf["api_host"] + GET_BROWSER_INFO_URL
         self.request_new_browser_url: str = self.conf["api_host"] + REQ_BROWSER_URL
         self.init_browser_url: str = self.conf["api_host"] + INIT_BROWSER_URL
-        self.session: ClientSession = ClientSession(
-            connector=TCPConnector(resolver=AsyncResolver(loop=loop), loop=loop),
-            json_serialize=ujson.dumps,
-            loop=loop,
-        )
         self.pubsub_channel: Channel = None
         self.pubsub_task: Task = None
 
@@ -155,9 +149,7 @@ class ShepherdDriver(Driver, ABC):
             return await res.json()
 
     async def clean_up(self) -> None:
-        logger.info(f"{self._class_name}[clean_up]: closing client session")
-        if self.session is not None:
-            await self.session.close()
+        logger.info(f"{self._class_name}[clean_up]: closing redis connection")
         if self.pubsub_task and not self.pubsub_task.done():
             self.pubsub_task.cancel()
             try:
@@ -177,7 +169,7 @@ class SingleBrowserDriver(ShepherdDriver):
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
         super().__init__(conf, loop)
-        self.browser: Browser = None
+        self.browser: Chrome = None
 
     async def init(self) -> None:
         logger.info(f"{self._class_name}[init]: initializing")
@@ -185,16 +177,17 @@ class SingleBrowserDriver(ShepherdDriver):
         tab_datas = await self.wait_for_tabs(
             self.conf.get("browser_host_ip"), self.conf.get("num_tabs")
         )
-        self.browser = Browser(
+        self.browser = Chrome(
             info=AutomationInfo(
                 autoid=self.conf.get("autoid"),
                 tab_type=self.conf.get("tab_type"),
                 reqid=self.conf.get("reqid", ""),
+                behavior_manager=self.behavior_manager,
             ),
             loop=self.loop,
             redis=self.redis,
         )
-        self.browser.on(Browser.Events.Exiting, self.on_browser_exit)
+        self.browser.on(Chrome.Events.Exiting, self.on_browser_exit)
         await self.browser.init(tab_datas)
         self.pubsub_task = self.loop.create_task(self.pubsub_loop())
 
@@ -252,7 +245,7 @@ class MultiBrowserDriver(ShepherdDriver):
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
         super().__init__(conf, loop)
-        self.browsers: Dict[str, Browser] = dict()
+        self.browsers: Dict[str, Chrome] = dict()
 
     async def get_auto_event_channel(self) -> Channel:
         channels = await self.redis.subscribe("auto-event")
@@ -286,11 +279,12 @@ class MultiBrowserDriver(ShepherdDriver):
                 )
                 tab_datas = results["tab_datas"]
 
-            browser = Browser(
+            browser = Chrome(
                 info=AutomationInfo(
                     reqid=reqid,
                     autoid=self.conf.get("autoid"),
                     tab_type=self.conf.get("tab_type"),
+                    behavior_manager=self.behavior_manager,
                 ),
                 loop=self.loop,
                 redis=self.redis,
@@ -298,7 +292,7 @@ class MultiBrowserDriver(ShepherdDriver):
 
             await browser.init(tab_datas)
             self.browsers[reqid] = browser
-            browser.on(Browser.Events.Exiting, self.on_browser_exit)
+            browser.on(Chrome.Events.Exiting, self.on_browser_exit)
 
     async def remove_browser(self, reqid) -> None:
         logger.debug("Stop Automating Browser: " + reqid)

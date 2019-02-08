@@ -1,5 +1,5 @@
 import logging
-import ujson
+from ujson import loads as ujson_loads
 from typing import List
 
 import attr
@@ -29,10 +29,13 @@ class RedisScope(object):
         Retrieves all scope rules from the scope field and populates the rules list.
         If the retrieved scope rules is zero then all links are considered in scope.
         """
+        # https://wiki.python.org/moin/PythonSpeed/PerformanceTips: Avoiding dots...
+        add_rule = self.rules.append
+        log_info = logger.info
         for scope_str in await self.redis.smembers(self.keys.scope):
-            scope = ujson.loads(scope_str)
-            logger.info(f"RedisScope scope_str: {scope_str}")
-            self.rules.append(MatchRule(**scope))
+            scope = ujson_loads(scope_str)
+            log_info(f"RedisScope scope_str: {scope_str}")
+            add_rule(MatchRule(**scope))
         num_rules = len(self.rules)
         self.all_links = num_rules == 0
         logger.info(
