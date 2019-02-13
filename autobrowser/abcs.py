@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from asyncio import Task, AbstractEventLoop
 from typing import Any, Awaitable, ClassVar, Dict, List, Optional, TYPE_CHECKING
 
-from pyee import EventEmitter
+from pyee2 import EventEmitter
 
 from .events import BrowserEvents, TabEvents
 

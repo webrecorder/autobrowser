@@ -1,22 +1,20 @@
-import asyncio
-import logging
-from asyncio import Task, CancelledError, TimeoutError
+from asyncio import Task, TimeoutError
 from pathlib import Path
 from typing import List, Optional, Any
 
 import aiofiles
 from async_timeout import timeout
-from simplechrome.errors import NavigationTimeoutError
+from simplechrome.errors import NavigationTimeoutError, NavigationError
 from simplechrome.frame_manager import FrameManager, Frame
 
 from autobrowser.automation import RedisKeys, CloseReason
 from autobrowser.frontier import RedisFrontier
-from autobrowser.util import Helper
+from autobrowser.util import Helper, RootLogger
 from .basetab import BaseTab
 
 __all__ = ["CrawlerTab"]
 
-logger = logging.getLogger("autobrowser")
+logger = RootLogger.getChild("CrawlerTab")
 
 
 class CrawlerTab(BaseTab):
@@ -66,7 +64,7 @@ class CrawlerTab(BaseTab):
         :param wait: The wait condition that all the pages frame have
         before navigation is considered complete
         :param kwargs: Any additional arguments for use in navigating
-        :return: True or False indicating if navigation encountered an error
+        :return: True if navigation happened ok or False to indicate all stop
         """
         self._url = url
         try:
@@ -77,7 +75,15 @@ class CrawlerTab(BaseTab):
             logger.exception(
                 f"CrawlerTab[goto]: navigation timeout for {url}", exc_info=ne
             )
-            return False
+            return True
+        except NavigationError as nav_error:
+            if "Connection is closed" in str(nav_error):
+                logger.exception(
+                    f"CrawlerTab[goto]: connection closed while navigating to {url}",
+                    exc_info=nav_error,
+                )
+                return False
+            return True
         except Exception as e:
             logger.exception(
                 f"CrawlerTab[goto]: unknown error while navigating to {url}", exc_info=e
@@ -227,12 +233,14 @@ class CrawlerTab(BaseTab):
         if self._crawl_loop_running():
             if not self._graceful_shutdown:
                 logger.info("CrawlerTab[close]: canceling the crawl loop task")
-                self.crawl_loop.cancel()
             logger.info("CrawlerTab[close]: waiting for the crawl loop task to end")
             try:
-                await self.crawl_loop
-            except CancelledError:
-                pass
+                await Helper.timed_future_completion(
+                    self.crawl_loop,
+                    timeout=15,
+                    cancel=not self._graceful_shutdown,
+                    loop=self.loop,
+                )
             except Exception as e:
                 logger.exception(
                     "CrawlerTab[close]: the crawl loop threw an unexpected exception while "

@@ -72,7 +72,7 @@ class WRBehaviorRunner(Behavior):
         # if we are done then tell the tab we are done
         done = next_state.get("done")
         logger.info(
-            "WRBehaviorRunner[perform_action]: performed the next action, behavior state = {next_state}"
+            f"WRBehaviorRunner[perform_action]: performed the next action, behavior state = {next_state}"
         )
         if not done and next_state.get("wait"):
             logger.info(
@@ -98,16 +98,21 @@ class WRBehaviorRunner(Behavior):
         await self.init()
         try:
             self.tab.set_running_behavior(self)
+            self_perform_action = self.perform_action
+            self_collect_outlinks = self.collect_outlinks
+            self_tab_collect_outlinks = self.tab.collect_outlinks
+            logger_info = logger.info
+            helper_one_tick_sleep = Helper.one_tick_sleep
             while not self.done:
-                logger.info("WRBehaviorRunner[run]: performing action")
-                await self.perform_action()
-                if self.collect_outlinks:
-                    logger.info("WRBehaviorRunner[run]: collecting outlinks")
-                    await self.tab.collect_outlinks()
+                logger_info("WRBehaviorRunner[run]: performing action")
+                await self_perform_action()
+                if self_collect_outlinks:
+                    logger_info("WRBehaviorRunner[run]: collecting outlinks")
+                    await self_tab_collect_outlinks()
                 # we will wait 1 tick of the event loop before performing another action
                 # in order to allow any other tasks to continue on
                 if not self.done:
-                    await Helper.one_tick_sleep()
+                    await helper_one_tick_sleep()
             logger.info("WRBehaviorRunner[run]: behavior done")
         except Exception as e:
             logger.exception(

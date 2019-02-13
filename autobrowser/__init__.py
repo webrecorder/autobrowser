@@ -1,5 +1,3 @@
-import logging
-
 from .abcs import Behavior, BehaviorManager, Browser, Driver, Tab
 from .automation import (
     AutomationConfig,
@@ -31,9 +29,6 @@ from .exit_code_aware_runner import run_automation
 from .tabs import BaseTab, BehaviorTab, CrawlerTab, TAB_CLASSES
 from .util import NetworkIdleMonitor, monitor, Helper
 
-logging.basicConfig(
-    format="%(asctime)s [%(levelname)s]: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-)
 
 __all__ = [
     "AutoBrowserError",

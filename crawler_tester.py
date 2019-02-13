@@ -9,7 +9,10 @@ from aioredis import Redis
 
 from autobrowser import build_automation_config, LocalBrowserDiver, run_automation
 
-uvloop.install()
+try:
+    uvloop.install()
+except Exception:
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 CHROME = "google-chrome-unstable"  # aka chrome canary
 
@@ -34,7 +37,7 @@ DEFAULT_ARGS = [
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--disable-ipc-flooding-protection",
-    '--enable-features=NetworkService,NetworkServiceInProcess,brotli-encoding',
+    '--enable-features=NetworkService,NetworkServiceInProcess,brotli-encoding,AwaitOptimization',
     "--disable-client-side-phishing-detection",
     "--disable-default-apps",
     "--disable-extensions",
@@ -54,6 +57,7 @@ DEFAULT_ARGS = [
     "--use-mock-keychain",
     "--mute-audio",
     "--autoplay-policy=no-user-gesture-required",
+    "--enable-automation",
     "about:blank",
 ]
 

@@ -1,10 +1,11 @@
 import asyncio
 import ujson
-from asyncio import AbstractEventLoop
+from asyncio import AbstractEventLoop, Task, Future, CancelledError, TimeoutError, sleep as aio_sleep
 from typing import Awaitable, Callable, Dict, List, Optional, Union
 
 from aiohttp import ClientSession, TCPConnector, AsyncResolver
-from pyee import EventEmitter
+from async_timeout import timeout as aio_timeout
+from pyee2 import EventEmitter
 
 __all__ = ["Helper", "ListenerDict"]
 
@@ -65,4 +66,22 @@ class Helper(object):
         """Returns an awaitable to resolves on the next event loop tick
         :return: Awaitable that
         """
-        return asyncio.sleep(0)
+        return aio_sleep(0)
+
+    @staticmethod
+    async def timed_future_completion(
+        task_or_future: Union[Task, Future],
+        timeout: Union[int, float] = 10,
+        cancel: bool = False,
+        loop: Optional[AbstractEventLoop] = None,
+    ) -> None:
+        _loop = Helper.ensure_loop(loop)
+        if cancel and not task_or_future.done():
+            task_or_future.cancel()
+        try:
+            async with aio_timeout(timeout, loop=_loop):
+                await task_or_future
+        except (CancelledError, TimeoutError):
+            pass
+        except Exception:
+            raise

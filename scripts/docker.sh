@@ -1,41 +1,31 @@
 #!/usr/bin/env bash
 workdir="$PWD"
 
-buildBehaviorsImage () {
+buildBehaviorsAPIImage () {
   echo "Building Behaviors image"
-  docker build -f "${workdir}/wr-behaviors/Dockerfile.mountable" -t wrbehaviors:latest "${workdir}/wr-behaviors"
+  docker build -f "${workdir}/dockerfiles/Dockerfile.behaviors" -t webrecorder/behaviors-api:latest .
   echo "Built Behaviors image"
 }
 
 buildBehaviors () {
   echo "Building behaviors"
-  docker run --rm -v "${workdir}/autobrowser/behaviors/behaviorjs:/dist" -v "${workdir}/wr-behaviors/src:/src" -i -t wrbehaviors:latest
+  docker build -f "${workdir}/dockerfiles/Dockerfile.behaviors" --target behaviors -t webrecorder/behaviors-api:latest .
   echo "Built behaviors"
-}
-
-buildBehaviorPython () {
-  echo "Building docker image for python portion"
-  docker build . --no-cache -t webrecorder/autobrowser:latest
-  echo "Built docker image for python portion"
 }
 
 buildDriver () {
   echo "Building the driver part of the python portion"
-  docker build . --target driver -t webrecorder/autobrowser:latest
+  docker build -f "${workdir}/dockerfiles/Dockerfile.driver" -t webrecorder/autobrowser:latest .
   echo "Building the driver part of the python portion"
 }
 
 case "$1" in
-    "behaviorImage"*)
-     buildBehaviorsImage
+    "behaviorAPI"*)
+     buildBehaviorsAPIImage
     ;;
 
     "behaviors"*)
      buildBehaviors
-    ;;
-
-    "py"*)
-     buildBehaviorPython
     ;;
 
     "driver"*)
@@ -43,8 +33,7 @@ case "$1" in
     ;;
 
     *)
-    buildBehaviorsImage
-    buildBehaviors
-    buildBehaviorPython
+    buildBehaviorsAPIImage
+    buildDriver
     ;;
 esac

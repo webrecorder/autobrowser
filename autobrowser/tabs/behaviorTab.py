@@ -1,7 +1,7 @@
-import asyncio
 import logging
 from typing import Any
 
+from autobrowser.util.helper import Helper
 from .basetab import BaseTab
 
 __all__ = ["BehaviorTab"]
@@ -44,7 +44,7 @@ class BehaviorTab(BaseTab):
             return
         await super().init()
         self._curr_behavior_url = self.tab_data.get("url")
-        await asyncio.sleep(0)
+        await Helper.one_tick_sleep()
 
     async def close(self) -> None:
         logger.info(f"BehaviorTab[close]: closing")
@@ -56,11 +56,16 @@ class BehaviorTab(BaseTab):
             logger.debug(
                 f"BehaviorTab[_ensure_behavior_run_task_end]: we have an existing behavior stopping it"
             )
-            self._behavior_run_task.cancel()
             try:
-                await self._behavior_run_task
-            except asyncio.CancelledError:
-                pass
+                await Helper.timed_future_completion(
+                    self._behavior_run_task, cancel=True, loop=self.loop
+                )
+            except Exception as e:
+                logger.exception(
+                    "BehaviorTab[_ensure_behavior_run_task_end]: the current behavior_run_task "
+                    "threw an unexpected exception while waiting for it to end",
+                    exc_info=e,
+                )
             self._behavior_run_task = None
 
     @classmethod

@@ -7,15 +7,14 @@ aiohttp
 aioredis
 async-timeout
 attrs
+better_exceptions
 bottle
 cchardet
 gevent
 jinja2
-numpy
-pyee
+pyee2
 redis
 requests
 ruamel.yaml
 ujson
 uvloop
-yarl

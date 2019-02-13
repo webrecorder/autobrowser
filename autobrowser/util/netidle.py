@@ -4,7 +4,7 @@ from typing import Optional, Set, Dict, List, Any
 
 import async_timeout
 from cripy import Client
-from pyee import EventEmitter
+from pyee2 import EventEmitter
 
 from .helper import Helper, ListenerDict
 
