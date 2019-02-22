@@ -19,7 +19,7 @@ import attr
 from simplechrome.frame_manager import Frame
 
 if TYPE_CHECKING:
-    from ..tabs.basetab import BaseTab  # noqa: F401
+    from autobrowser.tabs.basetab import BaseTab  # noqa: F401
 
 
 __all__ = ["Behavior", "JSBasedBehavior"]

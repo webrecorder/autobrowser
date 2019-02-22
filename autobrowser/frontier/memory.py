@@ -12,7 +12,7 @@ logger = logging.getLogger("autobrowser")
 
 
 @attr.dataclass(slots=True)
-class Frontier(object):
+class Frontier:
     scope: Scope = attr.ib()
     depth: int = attr.ib()
     seen: Set[str] = attr.ib(init=False, factory=set)

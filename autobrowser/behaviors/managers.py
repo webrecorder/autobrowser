@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, List, TYPE_CHECKING
-from ujson import loads
+from ujson import loads as ujson_loads
 
 import aiofiles
 import attr
@@ -9,7 +9,6 @@ from urlcanon.rules import MatchRule
 
 from autobrowser.abcs import BehaviorManager
 from .runners import WRBehaviorRunner
-
 
 if TYPE_CHECKING:
     from autobrowser.abcs import Behavior, Tab
@@ -47,12 +46,12 @@ class RemoteBehaviorManager(BehaviorManager):
             logger.info(
                 f"RemoteBehaviorManager[behavior_for_url]: fetched behavior info for {url}: status = {res.status}"
             )
-            info: Dict[str, Any] = await res.json(loads=loads)
+            info: Dict[str, Any] = await res.json(loads=ujson_loads)
             return info
 
 
 @attr.dataclass(slots=True)
-class BehaviorMatcher(object):
+class BehaviorMatcher:
     """Combines both the matching of URLs to their behaviors and creating the behaviors
     based on the supplied behavior config.
 

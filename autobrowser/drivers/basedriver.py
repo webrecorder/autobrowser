@@ -63,7 +63,6 @@ class BaseDriver(Driver, ABC):
         self.redis.close()
         await self.redis.wait_closed()
         self.redis = None
-        await self.session.close()
         self.behavior_manager = None
         logger.info(f"{self._class_name}[clean_up]: closed redis connection")
 

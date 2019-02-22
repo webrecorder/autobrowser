@@ -13,7 +13,7 @@ logger = logging.getLogger("autobrowser")
 
 
 @attr.dataclass(slots=True)
-class Scope(object):
+class Scope:
     surts: Set[bytes] = attr.ib()
 
     @staticmethod

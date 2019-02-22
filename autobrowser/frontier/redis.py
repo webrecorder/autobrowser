@@ -20,7 +20,7 @@ log_info = logger.info
 
 
 @attr.dataclass(slots=True)
-class RedisFrontier(object):
+class RedisFrontier:
     redis: Redis = attr.ib(repr=False)
     keys: RedisKeys = attr.ib()
     loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)

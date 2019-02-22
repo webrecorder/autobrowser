@@ -75,9 +75,7 @@ class WRBehaviorRunner(Behavior):
             f"WRBehaviorRunner[perform_action]: performed the next action, behavior state = {next_state}"
         )
         if not done and next_state.get("wait"):
-            logger.info(
-                "WRBehaviorRunner[perform_action]: waiting for network idle"
-            )
+            logger.info("WRBehaviorRunner[perform_action]: waiting for network idle")
             await self.tab.wait_for_net_idle(global_wait=30)
         elif done:
             self._finished()
@@ -96,14 +94,14 @@ class WRBehaviorRunner(Behavior):
     async def run(self) -> None:
         logger.info("WRBehaviorRunner[run]: running behavior")
         await self.init()
+        self.tab.set_running_behavior(self)
+        self_perform_action = self.perform_action
+        self_collect_outlinks = self.collect_outlinks
+        self_tab_collect_outlinks = self.tab.collect_outlinks
+        logger_info = logger.info
+        helper_one_tick_sleep = Helper.one_tick_sleep
         try:
-            self.tab.set_running_behavior(self)
-            self_perform_action = self.perform_action
-            self_collect_outlinks = self.collect_outlinks
-            self_tab_collect_outlinks = self.tab.collect_outlinks
-            logger_info = logger.info
-            helper_one_tick_sleep = Helper.one_tick_sleep
-            while not self.done:
+            while 1:
                 logger_info("WRBehaviorRunner[run]: performing action")
                 await self_perform_action()
                 if self_collect_outlinks:
@@ -113,6 +111,8 @@ class WRBehaviorRunner(Behavior):
                 # in order to allow any other tasks to continue on
                 if not self.done:
                     await helper_one_tick_sleep()
+                else:
+                    break
             logger.info("WRBehaviorRunner[run]: behavior done")
         except Exception as e:
             logger.exception(

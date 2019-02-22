@@ -10,6 +10,10 @@ logger = logging.getLogger("autobrowser")
 
 
 class BehaviorTab(BaseTab):
+    @classmethod
+    def create(cls, *args, **kwargs) -> "BehaviorTab":
+        return cls(*args, **kwargs)
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._page_url_expression: str = "window.location.href"
@@ -67,10 +71,6 @@ class BehaviorTab(BaseTab):
                     exc_info=e,
                 )
             self._behavior_run_task = None
-
-    @classmethod
-    def create(cls, *args, **kwargs) -> "BehaviorTab":
-        return cls(*args, **kwargs)
 
     async def _run_behavior_for_current_url(self) -> None:
         behavior = await self.behavior_manager.behavior_for_url(

@@ -17,7 +17,7 @@ logger = logging.getLogger("autobrowser")
 
 
 @attr.dataclass(slots=True)
-class RedisScope(object):
+class RedisScope:
     redis: Redis = attr.ib(repr=False)
     keys: RedisKeys = attr.ib()
     rules: List[MatchRule] = attr.ib(init=False, factory=list)

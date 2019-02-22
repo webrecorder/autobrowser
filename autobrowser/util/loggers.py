@@ -1,4 +1,6 @@
-import better_exceptions; better_exceptions.hook()
+import better_exceptions
+
+better_exceptions.hook()
 import logging
 import attr
 
@@ -12,7 +14,7 @@ RootLogger = logging.getLogger("autobrowser")
 
 
 @attr.dataclass(slots=True)
-class AutoLogger(object):
+class AutoLogger:
     class_name: str = attr.ib()
     logging_instance: logging.Logger = attr.ib()
 
@@ -32,7 +34,9 @@ class AutoLogger(object):
         self.logging_instance.error(f"{self.class_name}{msg}", *args, **kwargs)
 
     def exception(self, msg, *args, exc_info=True, **kwargs):
-        self.logging_instance.exception(f"{self.class_name}{msg}", *args, exc_info=exc_info, **kwargs)
+        self.logging_instance.exception(
+            f"{self.class_name}{msg}", *args, exc_info=exc_info, **kwargs
+        )
 
     def critical(self, msg, *args, **kwargs):
         self.logging_instance.critical(f"{self.class_name}{msg}", *args, **kwargs)

@@ -1,10 +1,10 @@
-"""Abstract base classes that umplements the base functionality of a tab as defined by autobrowser.abcs.Tab"""
+"""Abstract base classes that implements the base functionality of a tab as defined by autobrowser.abcs.Tab"""
 import asyncio
 import base64
 import logging
 from abc import ABC
-from asyncio import Task, AbstractEventLoop
-from typing import Optional, Dict, Any
+from asyncio import AbstractEventLoop, Task, gather as aio_gather
+from typing import Any, Dict, Optional
 
 from aioredis import Redis
 from cripy import Client, connect
@@ -161,9 +161,10 @@ class BaseTab(Tab, ABC):
     async def _wait_for_reconnect(self) -> None:
         """Attempt to reconnect to browser tab after client connection was replayed with
         the devtools"""
+        self_init = self.init
         while True:
             try:
-                await self.init()
+                await self_init()
                 break
             except Exception as e:
                 print(e)
@@ -223,7 +224,7 @@ class BaseTab(Tab, ABC):
         self.client.Inspector.detached(self.devtools_reconnect)
         self.client.Inspector.targetCrashed(self._on_inspector_crashed)
 
-        await asyncio.gather(
+        await aio_gather(
             self.client.Page.enable(),
             self.client.Network.enable(),
             self.client.Runtime.enable(),

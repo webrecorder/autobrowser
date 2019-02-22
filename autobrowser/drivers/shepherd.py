@@ -1,15 +1,16 @@
-import asyncio
 import logging
 import ujson
 from abc import ABC
-from asyncio import AbstractEventLoop, Task
-from typing import Optional, List, Dict, Any, Union
+from asyncio import AbstractEventLoop, Task, sleep as aio_sleep, CancelledError
+from typing import Any, Dict, List, Optional, Union
+from ujson import loads as ujson_loads
 
 from aioredis import Channel
 
 from autobrowser.automation import AutomationConfig, AutomationInfo, BrowserExitInfo
 from autobrowser.chrome_browser import Chrome
 from autobrowser.errors import BrowserStagingError
+from autobrowser.util import HTTPGet, HTTPPost, HTTPRequestSession
 from .basedriver import BaseDriver
 
 __all__ = [
@@ -53,7 +54,7 @@ class ShepherdDriver(BaseDriver, ABC):
         async with self.session.post(
             self.request_new_browser_url.format(browser=browser_id), data=data
         ) as response:
-            json = await response.json()  # type: Dict[str, str]
+            json = await response.json(loads=ujson_loads)  # type: Dict[str, str]
         reqid = json.get("reqid")
         if reqid is None:
             raise BrowserStagingError(f"Could not stage browser with id = {browser_id}")
@@ -63,7 +64,7 @@ class ShepherdDriver(BaseDriver, ABC):
         self, browser_id: str, data: Optional[Any] = None
     ) -> Optional[Dict[str, Union[str, List[Dict[str, str]]]]]:
         reqid = await self.stage_new_browser(browser_id, data)
-        while True:
+        while 1:
             async with self.session.get(
                 self.init_browser_url.format(reqid=reqid),
                 headers=dict(Host="localhost"),
@@ -81,19 +82,19 @@ class ShepherdDriver(BaseDriver, ABC):
                     f"{self._class_name}[init_new_browser]: Waiting for Browser: "
                     + str(data)
                 )
-                await asyncio.sleep(WAIT_TIME, loop=self.loop)
+                await aio_sleep(WAIT_TIME, loop=self.loop)
         tab_datas = await self.wait_for_tabs(data.get("ip"), self.conf["num_tabs"])
         return dict(ip=data.get("ip"), reqid=reqid, tab_datas=tab_datas)
 
     async def wait_for_tabs(self, ip: str, num_tabs: int = 0) -> List[Dict[str, str]]:
-        while True:
+        while 1:
             tab_datas = await self.find_browser_tabs(ip=ip)
             if tab_datas:
                 break
             logger.debug(
                 f"{self._class_name}[wait_for_tabs(ip={ip}, num_tabs={num_tabs})]: Waiting for first tab"
             )
-            await asyncio.sleep(WAIT_TIME, loop=self.loop)
+            await aio_sleep(WAIT_TIME, loop=self.loop)
         if num_tabs > 0:
             for _ in range(num_tabs - 1):
                 tab_data = await self.create_browser_tab(ip)
@@ -109,7 +110,7 @@ class ShepherdDriver(BaseDriver, ABC):
         filtered_tabs: List[Dict[str, str]] = []
         try:
             async with self.session.get(CDP_JSON.format(ip=ip)) as res:
-                tabs = await res.json()
+                tabs = await res.json(loads=ujson_loads)
         except Exception as e:
             logger.info(str(e))
             return filtered_tabs
@@ -138,7 +139,7 @@ class ShepherdDriver(BaseDriver, ABC):
             async with self.session.get(
                 self.browser_info_url.format(reqid=reqid)
             ) as res:
-                json = await res.json()  # type: Dict[str, str]
+                json = await res.json(loads=ujson_loads)  # type: Dict[str, str]
                 return json.get("ip")
         except Exception:
             pass
@@ -146,7 +147,7 @@ class ShepherdDriver(BaseDriver, ABC):
 
     async def create_browser_tab(self, ip: str) -> Dict[str, str]:
         async with self.session.get(CDP_JSON_NEW.format(ip=ip)) as res:
-            return await res.json()
+            return await res.json(loads=ujson_loads)
 
     async def clean_up(self) -> None:
         logger.info(f"{self._class_name}[clean_up]: closing redis connection")
@@ -154,7 +155,7 @@ class ShepherdDriver(BaseDriver, ABC):
             self.pubsub_task.cancel()
             try:
                 await self.pubsub_task
-            except asyncio.CancelledError:
+            except CancelledError:
                 pass
             self.pubsub_task = None
         if self.pubsub_channel is not None:

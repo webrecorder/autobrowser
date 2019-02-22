@@ -1,19 +1,29 @@
-import asyncio
-import ujson
-from asyncio import AbstractEventLoop, Task, Future, CancelledError, TimeoutError, sleep as aio_sleep
+from asyncio import (
+    AbstractEventLoop,
+    CancelledError,
+    Future,
+    Task,
+    TimeoutError,
+    get_event_loop as aio_get_event_loop,
+    sleep as aio_sleep,
+)
 from typing import Awaitable, Callable, Dict, List, Optional, Union
 
-from aiohttp import ClientSession, TCPConnector, AsyncResolver
+from aiohttp import AsyncResolver, ClientSession, TCPConnector
 from async_timeout import timeout as aio_timeout
 from pyee2 import EventEmitter
+from ujson import dumps as ujson_dumps
+from functools import partial
 
 __all__ = ["Helper", "ListenerDict"]
 
 ListenerDict = Dict[str, Union[str, EventEmitter, Callable]]
 
 
-class Helper(object):
+class Helper:
     """Utility class providing helpful utility functions"""
+
+    __slots__ = ()
 
     @staticmethod
     def add_event_listener(
@@ -48,7 +58,7 @@ class Helper(object):
     def ensure_loop(loop: Optional[AbstractEventLoop] = None) -> AbstractEventLoop:
         if loop is not None:
             return loop
-        return asyncio.get_event_loop()
+        return aio_get_event_loop()
 
     @staticmethod
     def create_aio_http_client_session(
@@ -57,15 +67,13 @@ class Helper(object):
         eloop = Helper.ensure_loop(loop)
         return ClientSession(
             connector=TCPConnector(resolver=AsyncResolver(loop=eloop), loop=eloop),
-            json_serialize=ujson.dumps,
+            json_serialize=partial(ujson_dumps, ensure_ascii=False),
             loop=eloop,
         )
 
     @staticmethod
     def one_tick_sleep() -> Awaitable[None]:
-        """Returns an awaitable to resolves on the next event loop tick
-        :return: Awaitable that
-        """
+        """Returns an awaitable to resolves on the next event loop tick"""
         return aio_sleep(0)
 
     @staticmethod

@@ -9,7 +9,7 @@ __all__ = ["ShutdownCondition"]
 
 
 @attr.dataclass(slots=True, cmp=False)
-class ShutdownCondition(object):
+class ShutdownCondition:
     """This class represents an abstraction around the two conditions that would cause driver
     process to shutdown.
 

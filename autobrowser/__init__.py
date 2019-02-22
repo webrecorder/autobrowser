@@ -27,8 +27,13 @@ from .errors import (
 )
 from .exit_code_aware_runner import run_automation
 from .tabs import BaseTab, BehaviorTab, CrawlerTab, TAB_CLASSES
-from .util import NetworkIdleMonitor, monitor, Helper
-
+from .util import (
+    HTTPRequestSession,
+    Helper,
+    NetworkIdleMonitor,
+    create_aio_http_client_session,
+    monitor,
+)
 
 __all__ = [
     "AutoBrowserError",
@@ -49,9 +54,10 @@ __all__ = [
     "CrawlerTab",
     "Driver",
     "DriverError",
+    "HTTPRequestSession",
     "Helper",
-    "LocalBrowserDiver",
     "LocalBehaviorManager",
+    "LocalBrowserDiver",
     "MultiBrowserDriver",
     "NetworkIdleMonitor",
     "RedisKeys",
@@ -63,6 +69,7 @@ __all__ = [
     "TabClosedInfo",
     "WRBehaviorRunner",
     "build_automation_config",
+    "create_aio_http_client_session",
     "exit_code_from_reason",
     "monitor",
     "run_automation",

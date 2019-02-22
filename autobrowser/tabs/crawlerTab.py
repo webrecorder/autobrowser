@@ -1,13 +1,14 @@
 from asyncio import Task, TimeoutError
 from pathlib import Path
-from typing import List, Optional, Any
+from typing import Any, List, Optional
 
 import aiofiles
 from async_timeout import timeout
-from simplechrome.errors import NavigationTimeoutError, NavigationError
-from simplechrome.frame_manager import FrameManager, Frame
+from simplechrome.errors import NavigationError
+from simplechrome.frame_manager import Frame, FrameManager
+from simplechrome.network_manager import NetworkManager
 
-from autobrowser.automation import RedisKeys, CloseReason
+from autobrowser.automation import CloseReason, RedisKeys
 from autobrowser.frontier import RedisFrontier
 from autobrowser.util import Helper, RootLogger
 from .basetab import BaseTab
@@ -38,7 +39,8 @@ class CrawlerTab(BaseTab):
         self.outlink_expression: str = "window.$wbOutlinks$"
         self.clear_outlinks: str = "window.$wbOutlinkSet$.clear()"
         #: The frame manager for the page
-        self.frame_manager: FrameManager = None
+        self.frames: FrameManager = None
+        self.network: NetworkManager = None
         self.redis_keys: RedisKeys = RedisKeys(self.browser.autoid)
         #: The crawling main loop
         self.crawl_loop: Optional[Task] = None
@@ -53,7 +55,10 @@ class CrawlerTab(BaseTab):
 
     @property
     def main_frame(self) -> Frame:
-        return self.frame_manager.mainFrame
+        return self.frames.mainFrame
+
+    def main_frame_getter(self) -> Frame:
+        return self.frames.mainFrame
 
     async def goto(
         self, url: str, wait: str = "load", *args: Any, **kwargs: Any
@@ -68,16 +73,11 @@ class CrawlerTab(BaseTab):
         """
         self._url = url
         try:
-            await self.frame_manager.mainFrame.goto(
-                url, waitUntil=wait, timeout=self._navigation_timeout, **kwargs
+            nav_response = await self.frames.mainFrame.goto(
+                url, waitUntil=wait, timeout=self._navigation_timeout
             )
-        except NavigationTimeoutError as ne:
-            logger.exception(
-                f"CrawlerTab[goto]: navigation timeout for {url}", exc_info=ne
-            )
-            return True
         except NavigationError as nav_error:
-            if "Connection is closed" in str(nav_error):
+            if nav_error.disconnected:
                 logger.exception(
                     f"CrawlerTab[goto]: connection closed while navigating to {url}",
                     exc_info=nav_error,
@@ -117,9 +117,6 @@ class CrawlerTab(BaseTab):
             logger.error(
                 f"CrawlerTab[collect_outlinks]: evaluating clear_outlinks threw an exception {e}"
             )
-
-    def main_frame_getter(self) -> Frame:
-        return self.frame_manager.mainFrame
 
     async def run_behavior(self) -> None:
         # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
@@ -164,10 +161,17 @@ class CrawlerTab(BaseTab):
             await self.client.Network.setCacheDisabled(True)
         # enable receiving of frame lifecycle events for the frame manager
         await self.client.Page.setLifecycleEventsEnabled(True)
+        # self.network = NetworkManager(self.client, loop=self.loop)
         frame_tree = await self.client.Page.getFrameTree()
-        self.frame_manager = FrameManager(
-            self.client, frame_tree["frameTree"], loop=self.loop
+        self.frames = FrameManager(
+            self.client,
+            frame_tree["frameTree"],
+            # networkManager=self.network,
+            isolateWorlds=False,
+            loop=self.loop,
         )
+        self.frames.setDefaultNavigationTimeout(self._navigation_timeout)
+        # self.network.setFrameManager(self.frames)
         # ensure we do not have any naughty JS by disabling its ability to
         # prevent us from navigating away from the page
         async with aiofiles.open(
@@ -190,7 +194,9 @@ class CrawlerTab(BaseTab):
             f"CrawlerTab[crawl]: crawl loop starting and the frontier is {frontier_state}"
         )
         # loop until frontier is exhausted
-        while not frontier_exhausted:
+        while 1:
+            if frontier_exhausted:
+                break
             if self._graceful_shutdown:
                 logger.info(
                     f"CrawlerTab[crawl]: got graceful_shutdown before crawling the url"
@@ -199,12 +205,13 @@ class CrawlerTab(BaseTab):
             n_url = await self.frontier.next_url()
             logger.info(f"CrawlerTab[crawl]: navigating to {n_url}")
             # TODO(n0tan3rd): ensure we can detect connection closed here
+
+            self._url = n_url
+
             was_error = await self.goto(n_url)
             if was_error:
-                error_m = "an error"
-            else:
-                error_m = "no error"
-            logger.info(f"CrawlerTab[crawl]: navigated to {n_url} with {error_m}")
+                break
+            logger.info(f"CrawlerTab[crawl]: navigated to {n_url} with no error")
 
             # maybe run a behavior
             await self.run_behavior()
