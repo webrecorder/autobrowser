@@ -1,12 +1,9 @@
-import logging
 from typing import Any
 
 from autobrowser.util.helper import Helper
 from .basetab import BaseTab
 
 __all__ = ["BehaviorTab"]
-
-logger = logging.getLogger("autobrowser")
 
 
 class BehaviorTab(BaseTab):
@@ -22,6 +19,7 @@ class BehaviorTab(BaseTab):
         )
 
     async def resume_behaviors(self) -> None:
+        logged_method = "resume_behaviors"
         await super().resume_behaviors()
         url = await self.evaluate_in_page(self._page_url_expression)
         behavior_paused_flag = await self.evaluate_in_page(
@@ -30,18 +28,18 @@ class BehaviorTab(BaseTab):
         behavior_not_running = (
             self._running_behavior is None or self._running_behavior.done
         )
-        logger.debug(
-            f"BehaviorTab[resume_behaviors]: page url = {url}, paused flag exists = {behavior_paused_flag}, "
-            f"and behavior not running {behavior_not_running}"
+        self.logger.info(
+            logged_method,
+            f"<url={url}, paused_flag_exists={behavior_paused_flag}, behavior_not_running={behavior_not_running}>",
         )
         url_change = url != self._curr_behavior_url and not behavior_paused_flag
         # if no behavior running, restart behavior for current page
         if behavior_not_running or url_change:
             await self._ensure_behavior_run_task_end()
             self._curr_behavior_url = url
-            logger.debug(f"BehaviorTab[resume_behaviors]: Restarting behavior")
+            self.logger.info(logged_method, "restarting behavior")
             await self._run_behavior_for_current_url()
-        logger.debug(f"BehaviorTab[resume_behaviors]: Behavior resumed")
+        self.logger.info(logged_method, f"behavior resumed")
 
     async def init(self) -> None:
         if self._running:
@@ -51,23 +49,22 @@ class BehaviorTab(BaseTab):
         await Helper.one_tick_sleep()
 
     async def close(self) -> None:
-        logger.info(f"BehaviorTab[close]: closing")
+        self.logger.info("close", "closing")
         await self._ensure_behavior_run_task_end()
         await super().close()
 
     async def _ensure_behavior_run_task_end(self) -> None:
         if self._behavior_run_task is not None and not self._behavior_run_task.done():
-            logger.debug(
-                f"BehaviorTab[_ensure_behavior_run_task_end]: we have an existing behavior stopping it"
-            )
+            logged_method = "_ensure_behavior_run_task_end"
+            self.logger.info(logged_method, "we have an existing behavior stopping it")
             try:
                 await Helper.timed_future_completion(
                     self._behavior_run_task, cancel=True, loop=self.loop
                 )
             except Exception as e:
-                logger.exception(
-                    "BehaviorTab[_ensure_behavior_run_task_end]: the current behavior_run_task "
-                    "threw an unexpected exception while waiting for it to end",
+                self.logger.exception(
+                    logged_method,
+                    "the current behavior_run_task threw an unexpected exception while waiting for it to end",
                     exc_info=e,
                 )
             self._behavior_run_task = None
@@ -76,7 +73,8 @@ class BehaviorTab(BaseTab):
         behavior = await self.behavior_manager.behavior_for_url(
             self._curr_behavior_url, self
         )
-        logger.debug(
-            f"BehaviorTab[_run_behavior_for_current_url]: starting behavior {behavior} for {self._curr_behavior_url}"
+        self.logger.info(
+            "_run_behavior_for_current_url",
+            f"starting behavior {behavior} for {self._curr_behavior_url}",
         )
         self._behavior_run_task = self.loop.create_task(behavior.run())

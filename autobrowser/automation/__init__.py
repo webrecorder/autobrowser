@@ -1,12 +1,12 @@
 from .details import (
-    AutomationInfo,
     AutomationConfig,
+    AutomationInfo,
+    BrowserExitInfo,
+    CloseReason,
     RedisKeys,
     TabClosedInfo,
-    CloseReason,
-    BrowserExitInfo,
-    exit_code_from_reason,
     build_automation_config,
+    exit_code_from_reason,
 )
 from .shutdown import ShutdownCondition
 
@@ -14,10 +14,10 @@ __all__ = [
     "AutomationConfig",
     "AutomationInfo",
     "BrowserExitInfo",
-    "ShutdownCondition",
-    "RedisKeys",
-    "TabClosedInfo",
     "CloseReason",
-    "exit_code_from_reason",
+    "RedisKeys",
+    "ShutdownCondition",
+    "TabClosedInfo",
     "build_automation_config",
+    "exit_code_from_reason",
 ]

@@ -1,14 +1,16 @@
-import asyncio
-import signal
+from signal import SIGTERM
 from asyncio import AbstractEventLoop, Event
 from typing import Any
 
-import attr
+from attr import dataclass as attr_dataclass, ib as attr_ib
+
+from autobrowser.util import Helper
+
 
 __all__ = ["ShutdownCondition"]
 
 
-@attr.dataclass(slots=True, cmp=False)
+@attr_dataclass(slots=True, cmp=False)
 class ShutdownCondition:
     """This class represents an abstraction around the two conditions that would cause driver
     process to shutdown.
@@ -18,9 +20,9 @@ class ShutdownCondition:
       - when all Tabs controlled by the driver have finished their task.
     """
 
-    loop: AbstractEventLoop = attr.ib(default=None)
-    _shutdown_event: Event = attr.ib(init=False, default=None)
-    _shutdown_from_signal: bool = attr.ib(init=False, default=False)
+    loop: AbstractEventLoop = attr_ib(default=None, converter=Helper.ensure_loop)
+    _shutdown_event: Event = attr_ib(init=False, default=None)
+    _shutdown_from_signal: bool = attr_ib(init=False, default=False)
 
     @property
     def shutdown_condition_met(self) -> bool:
@@ -42,7 +44,5 @@ class ShutdownCondition:
         return self.loop.create_task(self._shutdown_event.wait()).__await__()
 
     def __attrs_post_init__(self) -> None:
-        if self.loop is None:
-            self.loop = asyncio.get_event_loop()
         self._shutdown_event = Event(loop=self.loop)
-        self.loop.add_signal_handler(signal.SIGTERM, self._initiate_shutdown_signal)
+        self.loop.add_signal_handler(SIGTERM, self._initiate_shutdown_signal)

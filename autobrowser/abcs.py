@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from asyncio import Task, AbstractEventLoop
-from typing import Any, Awaitable, ClassVar, Dict, List, Optional, TYPE_CHECKING
+from asyncio import AbstractEventLoop, Task
+from typing import Any, Awaitable, ClassVar, Dict, List, Optional, TYPE_CHECKING, Union
 
 from pyee2 import EventEmitter
 
@@ -87,13 +87,18 @@ class Behavior(ABC):
         """
 
     @abstractmethod
-    def run_task(self, loop: Optional[AbstractEventLoop] = None) -> Task:
-        """Run the behavior as a task, if the behavior is already running as
-        a task the running behavior run task is returned.
+    async def timed_run(self, max_run_time: Union[int, float]) -> None:
+        pass
 
-        :param loop: The event loop to task will be created using.
-        Defaults to asyncio.get_event_loop()
-        """
+    @abstractmethod
+    def run_task(self) -> Task:
+        """Run the behavior as a task, if the behavior is already running as
+        a task the running behavior run task is returned"""
+
+    @abstractmethod
+    def timed_run_task(self, max_run_time: Union[int, float]) -> Task:
+        """Run the behavior as a task that will run for maximum amount of time, if the behavior is already running as
+        a task the running behavior run task is returned"""
 
     @abstractmethod
     def _finished(self) -> None:
@@ -312,6 +317,11 @@ class Tab(EventEmitter, ABC):
 
     @property
     @abstractmethod
+    def connection_closed(self) -> bool:
+        pass
+
+    @property
+    @abstractmethod
     def autoid(self) -> str:
         """Retrieve the automation id of the running automation"""
 
@@ -363,7 +373,9 @@ class Tab(EventEmitter, ABC):
         """
 
     @abstractmethod
-    def wait_for_net_idle(self, *args: Any, **kwargs: Any) -> Task:
+    def wait_for_net_idle(
+        self, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
+    ) -> Awaitable[None]:
         """Returns a future that  resolves once network idle occurs.
 
         See the options of autobrowser.util.netidle.monitor for a complete

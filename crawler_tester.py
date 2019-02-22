@@ -74,9 +74,9 @@ async def reset_redis(redis: Redis):
     await redis.hset(info_key, "crawl_depth", 2)
     await redis.rpush(
         q_key,
+        ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),
         ujson.dumps(dict(url="https://www.youtube.com/watch?v=MfH0oirdHLs", depth=0)),
         ujson.dumps(dict(url="https://www.facebook.com/Smithsonian/", depth=0)),
-        ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),
         ujson.dumps(
             dict(
                 url="https://twitter.com/hashtag/iipcwac18?vertical=default&src=hash",

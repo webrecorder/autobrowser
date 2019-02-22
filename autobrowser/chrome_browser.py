@@ -1,5 +1,3 @@
-import asyncio
-import logging
 from asyncio import AbstractEventLoop
 from typing import Dict, List, Optional
 
@@ -13,11 +11,9 @@ from autobrowser.automation import (
 )
 from autobrowser.abcs import BehaviorManager, Browser, Tab
 from autobrowser.tabs import create_tab
-from autobrowser.util import Helper
+from autobrowser.util import AutoLogger, Helper, create_autologger
 
 __all__ = ["Chrome"]
-
-logger = logging.getLogger("autobrowser")
 
 
 class Chrome(Browser):
@@ -41,6 +37,7 @@ class Chrome(Browser):
         self.tabs: Dict[str, Tab] = dict()
         self.tab_closed_reasons: Dict[str, TabClosedInfo] = dict()
         self.running: bool = False
+        self.logger: AutoLogger = create_autologger("chrome_browser", "Chrome")
 
     @property
     def autoid(self) -> str:
@@ -79,7 +76,7 @@ class Chrome(Browser):
             tab = await create_tab(self, tab_data, redis=self.redis)
             self.tabs[tab.tab_id] = tab
             tab.on(Tab.Events.Closed, self._tab_closed)
-        await asyncio.sleep(0)
+        await Helper.one_tick_sleep()
 
     async def reinit(self, tab_data: Optional[List[Dict]] = None) -> None:
         """Re initialize the browser, if the browser was previously running
@@ -89,7 +86,7 @@ class Chrome(Browser):
         """
         if self.running:
             return
-        logger.info(f"Browser[reinit]: autoid = {self._info.autoid}")
+        self.logger.info("reinit", f"<autoid={self._info.autoid}>")
         await self.init(tab_data)
 
     async def close(self, gracefully: bool = False) -> None:
@@ -101,10 +98,11 @@ class Chrome(Browser):
         :param gracefully: A boolean indicating if we should close the
         tabs gracefully or not.
         """
-        logger.info(f"Browser[close(gracefully={gracefully})]: initiating close")
+        logged_method = f"close(gracefully={gracefully})"
+        self.logger.info(logged_method, "initiating close")
         self.running = False
         await self._clear_tabs(gracefully)
-        logger.info(f"Browser[close(gracefully={gracefully})]: closed")
+        self.logger.info(logged_method, "closed")
         self.emit(
             Chrome.Events.Exiting,
             BrowserExitInfo(self._info, list(self.tab_closed_reasons.values())),
@@ -114,7 +112,7 @@ class Chrome(Browser):
         """Initiate the graceful closing of the browser and its tabs"""
         if not self.running:
             return
-        logger.info("Browser[shutdown_gracefully]: shutting down")
+        self.logger.info("shutdown_gracefully", "shutting down")
         await self.close(gracefully=True)
 
     async def _tab_closed(self, info: TabClosedInfo) -> None:
@@ -122,14 +120,15 @@ class Chrome(Browser):
 
         :param info: The closed info for the tab that closed
         """
-        logger.info(f"Browser[_tab_closed]: {info}")
+        logged_method = "_tab_closed"
+        self.logger.info(logged_method, f"<info={info}>")
         tab = self.tabs.pop(info.tab_id, None)
         if tab is None:
-            logger.info(
-                f"Browser[_tab_closed]: Tab(tab_id={info.tab_id}) already removed"
+            self.logger.info(
+                logged_method, f"Tab(tab_id={info.tab_id}) already removed"
             )
             return
-        logger.info(f"Browser[_tab_closed]: removing Tab(tab_id={tab.tab_id})")
+        self.logger.info(logged_method, f"removing Tab(tab_id={tab.tab_id})")
         self.tab_closed_reasons[tab.tab_id] = info
         tab.remove_listener(Tab.Events.Closed, self._tab_closed)
         if len(self.tabs) == 0:

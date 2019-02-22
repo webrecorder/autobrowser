@@ -1,22 +1,19 @@
-import logging
 from abc import ABC
 from asyncio import AbstractEventLoop
 from collections import Counter
+from operator import itemgetter
 from typing import Counter as CounterT, List, Optional
 
-import aioredis
 from aiohttp import ClientSession
-from aioredis import Redis
+from aioredis import Redis, create_redis_pool as aioredis_create_redis_pool
 
 from autobrowser.abcs import Driver
 from autobrowser.automation import AutomationConfig, BrowserExitInfo, ShutdownCondition
 from autobrowser.behaviors import RemoteBehaviorManager
 from autobrowser.chrome_browser import Chrome
-from autobrowser.util import Helper
+from autobrowser.util import AutoLogger, Helper, create_autologger
 
 __all__ = ["BaseDriver"]
-
-logger = logging.getLogger("autobrowser")
 
 
 class BaseDriver(Driver, ABC):
@@ -37,20 +34,21 @@ class BaseDriver(Driver, ABC):
             behavior_endpoint=self.conf.get("fetch_behavior_endpoint"),
             behavior_info_endpoint=self.conf.get("fetch_behavior_info_endpoint"),
             session=self.session,
+            loop=self.loop,
         )
         self.redis: Redis = None
-        self._class_name: str = self.__class__.__name__
+        self.logger: AutoLogger = create_autologger("drivers", self.__class__.__name__)
         self._browser_exit_infos: List[BrowserExitInfo] = []
 
     async def init(self) -> None:
         """Initialize the driver."""
-        logger.info(f"{self._class_name}[init]: connecting to redis")
-        self.did_init = True
         redis_url = self.conf.get("redis_url")
-        self.redis = await aioredis.create_redis_pool(
+        self.logger.info("init", f"connecting to redis <url={redis_url}>")
+        self.did_init = True
+        self.redis = await aioredis_create_redis_pool(
             redis_url, loop=self.loop, encoding="utf-8"
         )
-        logger.info(f"{self._class_name}[init]: connected to redis")
+        self.logger.info("init", f"connected to redis <url={redis_url}>")
 
     async def clean_up(self) -> None:
         """Performs any necessary cleanup Close all dependant resources.
@@ -59,12 +57,12 @@ class BaseDriver(Driver, ABC):
         """
         if self.redis is None:
             return
-        logger.info(f"{self._class_name}[clean_up]: closing redis connection")
+        self.logger.info("clean_up", "closing redis connection")
         self.redis.close()
         await self.redis.wait_closed()
         self.redis = None
         self.behavior_manager = None
-        logger.info(f"{self._class_name}[clean_up]: closed redis connection")
+        self.logger.info("clean_up", "closed redis connection")
 
     async def run(self) -> int:
         """Start running the driver.
@@ -77,12 +75,12 @@ class BaseDriver(Driver, ABC):
           - await shutdown_condition
           - await shutdown
         """
-        logger.info(f"{self._class_name}[run]: running")
+        self.logger.info("run", "running")
         if not self.did_init:
             await self.init()
-        logger.info(f"{self._class_name}[run]: waiting for shutdown")
+        self.logger.info("run", "waiting for shutdown")
         await self.shutdown_condition
-        logger.info(f"{self._class_name}[run]: shutdown condition met")
+        self.logger.info("run", "shutdown condition met")
         return await self.shutdown()
 
     async def gracefully_shutdown_browser(self, browser: Chrome) -> None:
@@ -114,31 +112,22 @@ class BaseDriver(Driver, ABC):
 
         :return: An exit code based on the exit info's of the browsers
         """
+        logged_method = "determine_exit_code"
         if self.shutdown_condition.shutdown_from_signal:
-            logger.info(
-                f"{self._class_name}[determine_exit_code]: exit code 1, shutdown from signal"
-            )
+            self.logger.info(logged_method, "exit code 1, shutdown from signal")
             return 1
         beis_len = len(self._browser_exit_infos)
         if beis_len == 0:
-            logger.info(
-                f"{self._class_name}[determine_exit_code]: exit code 0, no browser exit info"
-            )
+            self.logger.info(logged_method, "exit code 0, no browser exit info")
             return 0
         elif beis_len == 1:
-            logger.info(
-                f"{self._class_name}[determine_exit_code]: 1 browser exit info, using its exit code"
-            )
+            self.logger.info(logged_method, "1 browser exit info, using its exit code")
             return self._browser_exit_infos[0].exit_reason_code()
-        logger.info(
-            f"{self._class_name}[determine_exit_code]: {beis_len} browser exit infos, using their exit code"
-        )
+        self.logger.info(logged_method, f"{beis_len} browser exit infos, using their exit code")
         browser_exit_counter: CounterT[int] = Counter()
         for bei in self._browser_exit_infos:
             browser_exit_counter[bei.exit_reason_code()] += 1
-        exit_code, count = max(
-            browser_exit_counter.items(), key=lambda reason_count: reason_count[1]
-        )
+        exit_code, count = max(browser_exit_counter.items(), key=itemgetter(1))
         return exit_code
 
     def initiate_shutdown(self) -> None:
@@ -147,4 +136,11 @@ class BaseDriver(Driver, ABC):
         This method should be used to shutdown (stop) the driver from running
         rather than calling :func:`~basedriver.Driver.shutdown` directly
         """
+        self.logger.info("initiate_shutdown", "shutdown initiated")
         self.shutdown_condition.initiate_shutdown()
+
+    def __str__(self) -> str:
+        return f"BaseDriver(conf={self.conf})"
+
+    def __repr__(self) -> str:
+        return self.__str__()

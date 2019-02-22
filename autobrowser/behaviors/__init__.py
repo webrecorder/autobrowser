@@ -1,4 +1,4 @@
-from .managers import RemoteBehaviorManager, LocalBehaviorManager
+from .managers import LocalBehaviorManager, RemoteBehaviorManager
 from .runners import WRBehaviorRunner
 
-__all__ = ["RemoteBehaviorManager", "LocalBehaviorManager", "WRBehaviorRunner"]
+__all__ = ["LocalBehaviorManager", "RemoteBehaviorManager", "WRBehaviorRunner"]

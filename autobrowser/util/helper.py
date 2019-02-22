@@ -55,6 +55,10 @@ class Helper:
         listeners.clear()
 
     @staticmethod
+    def event_loop() -> AbstractEventLoop:
+        return aio_get_event_loop()
+
+    @staticmethod
     def ensure_loop(loop: Optional[AbstractEventLoop] = None) -> AbstractEventLoop:
         if loop is not None:
             return loop

@@ -1,11 +1,20 @@
-import socket
-from typing import Any, Counter as CounterT, Dict, List, Optional, TYPE_CHECKING
 from collections import Counter
 from enum import Enum, auto
-import attr
-import os
-import ujson
+from os import environ as os_environ
+from socket import gethostbyname as socket_gethostbyname
+from typing import (
+    Any,
+    Counter as CounterT,
+    Dict,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Type,
+    Union,
+)
+from ujson import loads as ujson_loads
 
+from attr import dataclass as attr_dataclass, ib as attr_ib
 
 if TYPE_CHECKING:
     from autobrowser.abcs import BehaviorManager
@@ -22,10 +31,41 @@ __all__ = [
 ]
 
 
-def get_browser_host_ip(browser_host: Optional[str]) -> str:
+def get_browser_host_ip(browser_host: Optional[str] = None) -> str:
     if browser_host is not None:
-        return socket.gethostbyname(browser_host)
+        return socket_gethostbyname(browser_host)
     return ""
+
+
+def env(
+    key: str,
+    type_: Type[Union[str, bool, int, dict]] = str,
+    default: Optional[Any] = None,
+) -> Union[str, int, bool, Dict]:
+    if key not in os_environ:
+        return default
+
+    val = os_environ[key]
+
+    if type_ == str:
+        return val
+    elif type_ == bool:
+        if val.lower() in ["1", "true", "yes", "y", "ok", "on"]:
+            return True
+        if val.lower() in ["0", "false", "no", "n", "nok", "off"]:
+            return False
+        raise ValueError(
+            f"Invalid environment variable '{key}' (expected a boolean): '{val}'"
+        )
+    elif type_ == int:
+        try:
+            return int(val)
+        except ValueError:
+            raise ValueError(
+                f"Invalid environment variable '{key}' (expected ab integer): '{val}'"
+            )
+    elif type_ == dict:
+        return ujson_loads(val)
 
 
 AutomationConfig = Dict[str, Any]
@@ -34,33 +74,28 @@ AutomationConfig = Dict[str, Any]
 def build_automation_config(
     options: Optional[Dict] = None, **kwargs: Any
 ) -> AutomationConfig:
-    browser_host = os.environ.get("BROWSER_HOST")
-    chrome_opts = (
-        ujson.loads(os.environ.get("CHROME_OPTS"))
-        if "CHROME_OPTS" in os.environ
-        else None
-    )
+    browser_host = env("BROWSER_HOST")
     conf: AutomationConfig = dict(
-        redis_url=os.environ.get("REDIS_URL", "redis://localhost"),
-        tab_type=os.environ.get("TAB_TYPE", "BehaviorTab"),
-        browser_id=os.environ.get("BROWSER_ID", "chrome:67"),
+        redis_url=env("REDIS_URL", default="redis://localhost"),
+        tab_type=env("TAB_TYPE", default="BehaviorTab"),
+        browser_id=env("BROWSER_ID", default="chrome:67"),
         browser_host=browser_host,
         browser_host_ip=get_browser_host_ip(browser_host),
-        api_host=os.environ.get("SHEPARD_HOST", "http://shepherd:9020"),
-        num_tabs=int(os.environ.get("NUM_TABS", 1)),
-        autoid=os.environ.get("AUTO_ID"),
-        reqid=os.environ.get("REQ_ID"),
-        chrome_opts=chrome_opts,
-        max_behavior_time=int(os.environ.get("BEHAVIOR_RUN_TIME", 60)),
-        navigation_timeout=int(os.environ.get("NAV_TO", 30)),
-        net_cache_disabled=bool(os.environ.get("CRAWL_NO_NETCACHE")),
-        wait_for_q=int(os.environ.get("WAIT_FOR_Q", 0)),
-        behavior_api_url=os.environ.get("BEHAVIOR_API_URL", "http://localhost:3030"),
-        fetch_behavior_endpoint=os.environ.get(
-            "FETCH_BEHAVIOR_ENDPOINT", "http://localhost:3030/behavior?url="
+        api_host=env("SHEPARD_HOST", default="http://shepherd:9020"),
+        num_tabs=env("NUM_TABS", type_=int, default=1),
+        autoid=env("AUTO_ID"),
+        reqid=env("REQ_ID"),
+        chrome_opts=env("CHROME_OPTS", type_=dict),
+        max_behavior_time=env("BEHAVIOR_RUN_TIME", type_=int, default=60),
+        navigation_timeout=env("NAV_TO", type_=int, default=30),
+        net_cache_disabled=env("CRAWL_NO_NETCACHE", type_=bool, default=True),
+        wait_for_q=env("WAIT_FOR_Q", type_=bool, default=True),
+        behavior_api_url=env("BEHAVIOR_API_URL", default="http://localhost:3030"),
+        fetch_behavior_endpoint=env(
+            "FETCH_BEHAVIOR_ENDPOINT", default="http://localhost:3030/behavior?url="
         ),
-        fetch_behavior_info_endpoint=os.environ.get(
-            "FETCH_BEHAVIOR_INFO_ENDPOINT", "http://localhost:3030/info?url="
+        fetch_behavior_info_endpoint=env(
+            "FETCH_BEHAVIOR_INFO_ENDPOINT", default="http://localhost:3030/info?url="
         ),
     )
 
@@ -72,49 +107,49 @@ def build_automation_config(
     return conf
 
 
-@attr.dataclass(slots=True)
+@attr_dataclass(slots=True)
 class AutomationInfo(object):
     """A class containing all the information pertaining to the running automation
     as far as browsers and tabs are concerned
     """
 
-    behavior_manager: "BehaviorManager" = attr.ib()
+    behavior_manager: "BehaviorManager" = attr_ib()
 
     #: Which tab class is to be used
-    tab_type: str = attr.ib(
-        default=os.environ.get("TAB_TYPE", "BehaviorTab"), repr=False
-    )
+    tab_type: str = attr_ib(default=env("TAB_TYPE", default="BehaviorTab"), repr=False)
     #: The id for this running automation
-    autoid: Optional[str] = attr.ib(default=None)
+    autoid: Optional[str] = attr_ib(default=None)
     #: The id for the request made to shepard
-    reqid: Optional[str] = attr.ib(default=None)
-    max_behavior_time: int = attr.ib(
-        default=int(os.environ.get("BEHAVIOR_RUN_TIME", 60)), repr=False
+    reqid: Optional[str] = attr_ib(default=None)
+    max_behavior_time: int = attr_ib(
+        default=env("BEHAVIOR_RUN_TIME", type_=int, default=60), repr=False
     )
-    navigation_timeout: int = attr.ib(
-        default=int(os.environ.get("NAV_TO", 30)), repr=False
+    navigation_timeout: int = attr_ib(
+        default=env("NAV_TO", type_=int, default=30), repr=False
     )
-    net_cache_disabled: bool = attr.ib(
-        default=bool(os.environ.get("CRAWL_NO_NETCACHE")), repr=False
+    net_cache_disabled: bool = attr_ib(
+        default=env("CRAWL_NO_NETCACHE", type_=bool, default=True), repr=False
     )
-    wait_for_q: int = attr.ib(default=int(os.environ.get("WAIT_FOR_Q", 0)), repr=False)
+    wait_for_q: int = attr_ib(
+        default=env("WAIT_FOR_Q", type_=bool, default=True), repr=False
+    )
 
 
 def to_redis_key(aid: str) -> str:
     return f"a:{aid}"
 
 
-@attr.dataclass(slots=True)
+@attr_dataclass(slots=True)
 class RedisKeys(object):
     """Utility class that has the redis keys used by an automation as properties"""
 
-    autoid: str = attr.ib(converter=to_redis_key)
-    info: str = attr.ib(init=False, default=None)
-    queue: str = attr.ib(init=False, default=None)
-    pending: str = attr.ib(init=False, default=None)
-    seen: str = attr.ib(init=False, default=None)
-    scope: str = attr.ib(init=False, default=None)
-    auto_done: str = attr.ib(init=False, default=None)
+    autoid: str = attr_ib(converter=to_redis_key)
+    info: str = attr_ib(init=False, default=None)
+    queue: str = attr_ib(init=False, default=None)
+    pending: str = attr_ib(init=False, default=None)
+    seen: str = attr_ib(init=False, default=None)
+    scope: str = attr_ib(init=False, default=None)
+    auto_done: str = attr_ib(init=False, default=None)
 
     def __attrs_post_init__(self) -> None:
         self.info = f"{self.autoid}:info"
@@ -148,20 +183,20 @@ def exit_code_from_reason(reason: CloseReason) -> int:
     return 0
 
 
-@attr.dataclass(slots=True)
+@attr_dataclass(slots=True)
 class TabClosedInfo(object):
     """Simple data class containing the information about why a tab closed"""
 
-    tab_id: str = attr.ib()
-    reason: CloseReason = attr.ib()
+    tab_id: str = attr_ib()
+    reason: CloseReason = attr_ib()
 
 
-@attr.dataclass(slots=True)
+@attr_dataclass(slots=True)
 class BrowserExitInfo(object):
     """Simple data class containing the information about why a browser is exiting"""
 
-    auto_info: AutomationInfo = attr.ib()
-    tab_closed_reasons: List[TabClosedInfo] = attr.ib()
+    auto_info: AutomationInfo = attr_ib()
+    tab_closed_reasons: List[TabClosedInfo] = attr_ib()
 
     def exit_reason_code(self) -> int:
         tcr_len = len(self.tab_closed_reasons)

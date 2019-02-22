@@ -1,22 +1,18 @@
 """Abstract base classes that implements the base functionality of a tab as defined by autobrowser.abcs.Tab"""
-import asyncio
-import base64
-import logging
 from abc import ABC
-from asyncio import AbstractEventLoop, Task, gather as aio_gather
-from typing import Any, Dict, Optional
+from asyncio import AbstractEventLoop, Task, gather as aio_gather, sleep as aio_sleep
+from base64 import b64decode
+from typing import Any, Awaitable, Dict, Optional
 
 from aioredis import Redis
 from cripy import Client, connect
+from simplechrome.network_idle_monitor import NetworkIdleMonitor
 
-from autobrowser.abcs import BehaviorManager, Browser, Tab
+from autobrowser.abcs import Behavior, BehaviorManager, Browser, Tab
 from autobrowser.automation import AutomationInfo, CloseReason, TabClosedInfo
-from autobrowser.behaviors.basebehavior import Behavior
-from autobrowser.util import Helper, monitor
+from autobrowser.util import AutoLogger, Helper, create_autologger
 
 __all__ = ["BaseTab"]
-
-logger = logging.getLogger("autobrowser")
 
 
 class BaseTab(Tab, ABC):
@@ -36,14 +32,15 @@ class BaseTab(Tab, ABC):
         self.tab_data: Dict[str, str] = tab_data
         self.client: Client = None
         self.target_info: Optional[Dict] = None
+        self.logger: AutoLogger = create_autologger("tabs", self.__class__.__name__)
         self._url: str = self.tab_data["url"]
         self._id: str = self.tab_data["id"]
         self._curr_behavior_url: str = ""
         self._behaviors_paused: bool = False
+        self._connection_closed: bool = False
         self._running: bool = False
         self._reconnecting: bool = False
         self._graceful_shutdown: bool = False
-        self._clz_name = self.__class__.__name__
         self._behavior_run_task: Optional[Task] = None
         self._reconnect_promise: Optional[Task] = None
         self._running_behavior: Optional[Behavior] = None
@@ -65,6 +62,10 @@ class BaseTab(Tab, ABC):
     @property
     def automation_info(self) -> AutomationInfo:
         return self.browser.automation_info
+
+    @property
+    def connection_closed(self) -> bool:
+        return self._connection_closed
 
     @property
     def autoid(self) -> str:
@@ -150,18 +151,27 @@ class BaseTab(Tab, ABC):
             return
         await self._reconnect_promise
 
-    def wait_for_net_idle(self, *args: Any, **kwargs: Any) -> Task:
+    def wait_for_net_idle(
+        self, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
+    ) -> Awaitable[None]:
         """Returns a future that  resolves once network idle occurs.
 
         See the options of autobrowser.util.netidle.monitor for a complete
         description of the available arguments
         """
-        return monitor(self.client, *args, **kwargs)
+        return NetworkIdleMonitor.monitor(
+            self.client,
+            num_inflight=num_inflight,
+            idle_time=idle_time,
+            global_wait=global_wait,
+            loop=self.loop
+        )
 
     async def _wait_for_reconnect(self) -> None:
         """Attempt to reconnect to browser tab after client connection was replayed with
         the devtools"""
         self_init = self.init
+        loop = self.loop
         while True:
             try:
                 await self_init()
@@ -169,7 +179,7 @@ class BaseTab(Tab, ABC):
             except Exception as e:
                 print(e)
 
-            await asyncio.sleep(3.0)
+            await aio_sleep(3.0, loop=loop)
         self._reconnecting = False
         if self._reconnect_promise and not self._reconnect_promise.done():
             self._reconnect_promise.cancel()
@@ -182,7 +192,7 @@ class BaseTab(Tab, ABC):
         :param js_string: The string of JavaScript to be evaluated
         :return: The results of the evaluation if any
         """
-        logger.info(f"{self._clz_name}[evaluate_in_page]: evaluating js in page")
+        self.logger.info("evaluate_in_page", "evaluating js in page")
         results = await self.client.Runtime.evaluate(
             js_string,
             contextId=contextId,
@@ -203,7 +213,7 @@ class BaseTab(Tab, ABC):
         :param kwargs: Additional arguments to Page.navigate
         :return: The information returned by Page.navigate
         """
-        logger.info(f"{self._clz_name}[goto]: navigating to {url}")
+        self.logger.info(f"goto(url={url})", f"navigating to the supplied URL")
         return await self.client.Page.navigate(url, **kwargs)
 
     async def connect_to_tab(self) -> None:
@@ -213,12 +223,11 @@ class BaseTab(Tab, ABC):
         """
         if self._running:
             return
-        logger.info(
-            f"{self._clz_name}[connect_to_tab]: connecting to the browser {self.tab_data}"
-        )
-        self.client = await connect(self.tab_data["webSocketDebuggerUrl"], remote=True)
+        logged_method = "connect_to_tab"
+        self.logger.info(logged_method, f"connecting to the browser {self.tab_data}")
+        self.client = await connect(self.tab_data["webSocketDebuggerUrl"], remote=True, loop=self.loop)
 
-        logger.info(f"{self._clz_name}[connect_to_tab]: connected to browser")
+        self.logger.info(logged_method, "connected to browser")
 
         self.client.on(Client.Events.Disconnected, self._on_connection_closed)
         self.client.Inspector.detached(self.devtools_reconnect)
@@ -230,7 +239,7 @@ class BaseTab(Tab, ABC):
             self.client.Runtime.enable(),
             loop=self.loop,
         )
-        logger.info(f"{self._clz_name}[init]: enabled domains")
+        self.logger.info(logged_method, "enabled domains")
 
     async def init(self) -> None:
         """Initialize the client connection to the tab.
@@ -239,7 +248,7 @@ class BaseTab(Tab, ABC):
         implementation. This can be the only call in their
         implementation.
         """
-        logger.info(f"{self._clz_name}[init]: running = {self.running}")
+        self.logger.info("init", f"running = {self.running}")
         if self._running:
             return
         await self.connect_to_tab()
@@ -258,7 +267,7 @@ class BaseTab(Tab, ABC):
                 self._close_reason = CloseReason.GRACEFULLY
             else:
                 self._close_reason = CloseReason.CLOSED
-        logger.info(f"{self._clz_name}[close]: closing client")
+        self.logger.info("close", "closing client")
         if self.reconnecting:
             self.stop_reconnecting()
         if self.client:
@@ -269,10 +278,11 @@ class BaseTab(Tab, ABC):
 
     async def shutdown_gracefully(self) -> None:
         """Initiates the graceful shutdown of the tab"""
-        logger.info(f"{self._clz_name}[shutdown_gracefully]: shutting down")
+        logged_method = "shutdown_gracefully"
+        self.logger.info(logged_method, "shutting down")
         self._graceful_shutdown = True
         await self.close()
-        logger.info(f"{self._clz_name}[shutdown_gracefully]: shutdown complete")
+        self.logger.info(logged_method, "shutdown complete")
 
     async def capture_screenshot(self) -> bytes:
         """Capture a screenshot (in png format) of the current page.
@@ -280,7 +290,7 @@ class BaseTab(Tab, ABC):
         :return: The captured screenshot as bytes
         """
         result = await self.client.Page.captureScreenshot(format="png")
-        return base64.b64decode(result.get("data", b""))
+        return b64decode(result.get("data", b""))
 
     async def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         """Listener function for when the target has crashed.
@@ -289,8 +299,9 @@ class BaseTab(Tab, ABC):
         the tab will be closed
         """
         if self._running:
-            logger.critical(
-                f"{self._clz_name}<url={self._url}>[_on_inspector_crashed]: target crashed while running"
+            self.logger.critical(
+                "_on_inspector_crashed",
+                f"target crashed while running <url={self._url}>",
             )
             self._close_reason = CloseReason.TARGET_CRASHED
             await self.close()
@@ -302,14 +313,20 @@ class BaseTab(Tab, ABC):
         the tab will be closed
         """
         if self._running:
-            logger.critical(
-                f"{self._clz_name}<url={self._url}>[_on_connection_closed]: connection closed while running"
+            self._connection_closed = True
+            self.logger.critical(
+                "_on_connection_closed",
+                f"connection closed while running <url={self._url}>",
             )
             self._close_reason = CloseReason.CONNECTION_CLOSED
             await self.close()
 
     def __str__(self) -> str:
-        return f"{self._clz_name}(tab_id={self.tab_id}, url={self._url})"
+        name = self.__class__.__name__
+        info = f"graceful_shutdown={self._graceful_shutdown}, tab_id={self.tab_id}"
+        return (
+            f"{name}(url={self._url}, running={self._running} connected={not self._connection_closed}, {info})"
+        )
 
     def __repr__(self) -> str:
         return self.__str__()

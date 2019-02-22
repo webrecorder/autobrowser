@@ -1,59 +1,51 @@
-import asyncio
-from asyncio import sleep as aio_sleep, gather as aio_gather
-import logging
+from asyncio import AbstractEventLoop, gather as aio_gather, sleep as aio_sleep
+from typing import Any, Awaitable, Dict, Iterable, List, Union
 from ujson import dumps as ujson_dumps, loads as ujson_loads
-from asyncio import AbstractEventLoop
-from typing import Any, Awaitable, ClassVar, Dict, List, Iterable, Union
 
-import attr
 from aioredis import Redis
+from attr import dataclass as attr_dataclass, ib as attr_ib
 
 from autobrowser.automation import RedisKeys
 from autobrowser.scope import RedisScope
-
+from autobrowser.util import AutoLogger, Helper, create_autologger
 
 __all__ = ["RedisFrontier"]
 
-logger = logging.getLogger("autobrowser")
-
-log_info = logger.info
+CRAWL_DEPTH_FIELD: str = "crawl_depth"
 
 
-@attr.dataclass(slots=True)
+@attr_dataclass(slots=True)
 class RedisFrontier:
-    redis: Redis = attr.ib(repr=False)
-    keys: RedisKeys = attr.ib()
-    loop: AbstractEventLoop = attr.ib(factory=asyncio.get_event_loop)
-    scope: RedisScope = attr.ib(init=False)
-    crawl_depth: int = attr.ib(init=False, default=-1)
-    currently_crawling: Dict[str, Union[str, int]] = attr.ib(init=False, default=None)
-
-    CRAWL_DEPTH_FIELD: ClassVar[str] = "crawl_depth"
-
-    @scope.default
-    def _init_scope(self) -> RedisScope:
-        return RedisScope(self.redis, self.keys)
+    redis: Redis = attr_ib(repr=False)
+    keys: RedisKeys = attr_ib()
+    loop: AbstractEventLoop = attr_ib(
+        default=None, converter=Helper.ensure_loop, repr=False
+    )
+    scope: RedisScope = attr_ib(init=False, default=None)
+    crawl_depth: int = attr_ib(init=False, default=-1)
+    currently_crawling: Dict[str, Union[str, int]] = attr_ib(init=False, default=None)
+    logger: AutoLogger = attr_ib(default=None, init=False, repr=False)
 
     async def wait_for_populated_q(self, wait_time: Union[int, float] = 60) -> None:
         """Waits for the q to become populated by polling exhausted at wait_time intervals.
 
         :param wait_time: The interval time in seconds for polling exhausted. Defaults to 60
         """
-        log_info(
-            f"RedisFrontier[wait_for_populated_q]: starting wait loop, checking every {wait_time} seconds"
-        )
+        logged_method = f"wait_for_populated_q(wait_time={wait_time})"
+        self.logger.info(logged_method, "starting wait loop")
+
+        frontier_exhausted = await self.exhausted()
+        eloop = self.loop
         is_frontier_exhausted = self.exhausted
-        frontier_exhausted = await is_frontier_exhausted()
+        self_logger_info = self.logger.info
+
         while frontier_exhausted:
-            log_info(
-                f"RedisFrontier[wait_for_populated_q]: q still empty, waiting another {wait_time} seconds"
-            )
-            await aio_sleep(wait_time, loop=self.loop)
+            self_logger_info(logged_method, "q still not populated waiting")
+            await aio_sleep(wait_time, loop=eloop)
             frontier_exhausted = await is_frontier_exhausted()
+
         q_len = await self.q_len()
-        logger.info(
-            f"RedisFrontier[wait_for_populated_q]: q populated with {q_len} URLs"
-        )
+        self.logger.info(logged_method, f"q populated with {q_len} URLs")
 
     def next_depth(self) -> int:
         """Returns the next depth by adding one to the depth of the currently crawled URLs depth"""
@@ -68,7 +60,7 @@ class RedisFrontier:
     async def exhausted(self) -> bool:
         """Returns a boolean that indicates if the frontier is exhausted or not"""
         qlen = await self.redis.llen(self.keys.queue)
-        log_info(f"RedisFrontier[exhausted]: len(queue) = {qlen}")
+        self.logger.info("exhausted", f"len(queue) = {qlen}")
         return qlen == 0
 
     async def is_seen(self, url: str) -> bool:
@@ -80,7 +72,7 @@ class RedisFrontier:
 
         :param url: The URL to add to the pending set
         """
-        log_info(f"RedisFrontier[add_to_pending]: Adding {url} to the pending set")
+        self.logger.info("add_to_pending", f"Adding {url} to the pending set")
         return self.redis.sadd(self.keys.pending, url)
 
     def remove_from_pending(self, url: str) -> Awaitable[Any]:
@@ -100,7 +92,7 @@ class RedisFrontier:
         :return: The next URL to be crawled
         """
         self.currently_crawling = await self._pop_url()
-        log_info(f"RedisFrontier[next_url]: the next URL is {self.currently_crawling}")
+        self.logger.info("next_url", f"the next URL is {self.currently_crawling}")
         await self.add_to_pending(self.currently_crawling["url"])
         return self.currently_crawling["url"]
 
@@ -108,8 +100,9 @@ class RedisFrontier:
         """If currently_crawling url is set, remove it from pending set
         """
         if self.currently_crawling is not None:
-            log_info(
-                f"RedisFrontier[next_url]: removing the previous URL {self.currently_crawling} from the pending set"
+            self.logger.info(
+                "next_url",
+                f"removing the previous URL {self.currently_crawling} from the pending set",
             )
             curl: str = self.currently_crawling["url"]
             await self.remove_from_pending(curl)
@@ -118,9 +111,9 @@ class RedisFrontier:
     async def init(self) -> None:
         """Initialize the frontier"""
         self.crawl_depth = int(
-            await self.redis.hget(self.keys.info, self.CRAWL_DEPTH_FIELD) or 0
+            await self.redis.hget(self.keys.info, CRAWL_DEPTH_FIELD) or 0
         )
-        log_info(f"RedisFrontier[init]: crawl depth = {self.crawl_depth}")
+        self.logger.info("init", f"crawl depth = {self.crawl_depth}")
         await self.scope.init()
 
     async def add(self, url: str, depth: int) -> None:
@@ -151,35 +144,45 @@ class RedisFrontier:
         to the frontier
         """
         next_depth = self.next_depth()
-        logger.info(
-            f"RedisFrontier[add_all]: The next depth is {next_depth}. Max depth = {self.crawl_depth}"
-        )
         if next_depth > self.crawl_depth:
             return
+
+        logged_method = "add_all"
+
+        self.logger.info(
+            logged_method,
+            f"The next depth is {next_depth}. Max depth = {self.crawl_depth}",
+        )
+
         seen_list: List[str] = []
         urls_to_q: List[str] = []
 
-        # https://wiki.python.org/moin/PythonSpeed/PerformanceTips: Avoiding dots...
+        self_logger_info = self.logger.info
         is_url_seen = self.is_seen
         is_url_in_scope = self.scope.in_scope
-        add_to_seen = seen_list.append
-        add_to_q = urls_to_q.append
+        seen_list_append = seen_list.append
+        urls_to_q_append = urls_to_q.append
 
         for url in urls:
             is_seen = await is_url_seen(url)
             in_scope = is_url_in_scope(url)
-            log_info(
-                f'RedisFrontier[add_all]: {{"url": "{url}", "seen": '
-                f'{is_seen}, "in_scope": {in_scope}, "depth": {next_depth}}}'
+            self_logger_info(
+                logged_method,
+                f'{{"url": "{url}", "seen": {is_seen}, "in_scope": {in_scope}, "depth": {next_depth}}}',
             )
             if in_scope and not is_seen:
-                add_to_seen(url)
-                add_to_q(ujson_dumps(dict(url=url, depth=next_depth)))
+                seen_list_append(url)
+                urls_to_q_append(ujson_dumps(dict(url=url, depth=next_depth)))
+
         qlen = len(urls_to_q)
-        log_info(f"RedisFrontier[add_all]: adding {qlen} urls to the frontier")
+        self_logger_info(logged_method, f"adding {qlen} urls to the frontier")
         if qlen > 0:
             await aio_gather(
                 self.redis.rpush(self.keys.queue, *urls_to_q),
                 self.redis.sadd(self.keys.seen, *seen_list),
                 loop=self.loop,
             )
+
+    def __attrs_post_init__(self) -> None:
+        self.scope = RedisScope(self.redis, self.keys)
+        self.logger = create_autologger("frontier", "RedisFrontier")
