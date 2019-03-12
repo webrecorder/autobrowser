@@ -71,7 +71,7 @@ q_key = f"a:{dummy_auto_id}:q"
 
 async def reset_redis(redis: Redis):
     await redis.delete(q_key, info_key, seen_key, scope_key)
-    await redis.hset(info_key, "crawl_depth", 2)
+    await redis.hset(info_key, "crawl_depth", 1)
     await redis.rpush(
         q_key,
         ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),

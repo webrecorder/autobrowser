@@ -10,7 +10,7 @@ from .automation import (
     build_automation_config,
     exit_code_from_reason,
 )
-from .behaviors import LocalBehaviorManager, RemoteBehaviorManager, WRBehaviorRunner
+from .behaviors import RemoteBehaviorManager, WRBehaviorRunner
 from .chrome_browser import Chrome
 from .drivers import (
     BaseDriver,
@@ -50,7 +50,6 @@ __all__ = [
     "Driver",
     "DriverError",
     "Helper",
-    "LocalBehaviorManager",
     "LocalBrowserDiver",
     "MultiBrowserDriver",
     "RedisKeys",

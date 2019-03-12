@@ -75,6 +75,7 @@ def build_automation_config(
     options: Optional[Dict] = None, **kwargs: Any
 ) -> AutomationConfig:
     browser_host = env("BROWSER_HOST")
+    behavior_api_url = env("BEHAVIOR_API_URL", default="http://localhost:3030")
     conf: AutomationConfig = dict(
         redis_url=env("REDIS_URL", default="redis://localhost"),
         tab_type=env("TAB_TYPE", default="BehaviorTab"),
@@ -90,12 +91,12 @@ def build_automation_config(
         navigation_timeout=env("NAV_TO", type_=int, default=30),
         net_cache_disabled=env("CRAWL_NO_NETCACHE", type_=bool, default=True),
         wait_for_q=env("WAIT_FOR_Q", type_=bool, default=True),
-        behavior_api_url=env("BEHAVIOR_API_URL", default="http://localhost:3030"),
+        behavior_api_url=behavior_api_url,
         fetch_behavior_endpoint=env(
-            "FETCH_BEHAVIOR_ENDPOINT", default="http://localhost:3030/behavior?url="
+            "FETCH_BEHAVIOR_ENDPOINT", default=f"{behavior_api_url}/behavior?url="
         ),
         fetch_behavior_info_endpoint=env(
-            "FETCH_BEHAVIOR_INFO_ENDPOINT", default="http://localhost:3030/info?url="
+            "FETCH_BEHAVIOR_INFO_ENDPOINT", default=f"{behavior_api_url}/info?url="
         ),
     )
 
