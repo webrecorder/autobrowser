@@ -164,8 +164,16 @@ fabric.properties
 
 # Editor-based Rest Client
 .idea/httpRequests
-tests
-conftest.py
-crawler_tester.py
 *.sh
 *.ini
+.flake8
+.gitignore
+tests
+localCompose/
+behaviors/
+README.md
+Dockerfile
+docker-compose.yml
+crawler_tester.py
+conftest.py
+

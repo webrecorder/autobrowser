@@ -3,6 +3,7 @@ version: '3'
 services:
   server:
     image: "webrecorder/autobrowser:latest"
+    container_name: "autobrowser-server"
     build: ./
     command: python -u /app/server.py
     ports:
@@ -12,19 +13,23 @@ services:
 
   behaviors-api:
     image: "webrecorder/behaviors:latest"
-    command: "node ./api/run.js"
+    container_name: "autobrowser-behaviors-api"
     ports:
       - "3030:3030"
+
   pywb:
     image: 'webrecorder/pywb:develop'
+    container_name: "autobrowser-pywb"
     working_dir: /tmp
     command: wayback --live --proxy live --enable-auto-fetch
 
   redis:
+    container_name: "autobrowser-redis"
     image: 'redis:3.2.4'
 
   shepherd:
     image: oldwebtoday/browser-shepherd
+    container_name: "autobrowser-shepherd"
     environment:
       - REDIS_BROWSER_URL=redis://redis/0
       - BROWSER_NET=autobrowser_default
