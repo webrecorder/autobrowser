@@ -1,7 +1,7 @@
-from asyncio import Task
+from asyncio import Task, gather as aio_gather
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Awaitable, List, Optional, Set
+from typing import Any, Awaitable, List, Optional, Set, Dict
 
 from aiofiles import open as aiofiles_open
 from simplechrome.errors import NavigationError
@@ -21,6 +21,7 @@ PageMimeTypes: Set[str] = {"text/html"}
 
 class NavigationResult(Enum):
     """An enumeration representing the three possible outcomes of navigation"""
+
     EXIT_CRAWL_LOOP = auto()
     OK = auto()
     SKIP_URL = auto()
@@ -37,25 +38,29 @@ class CrawlerTab(BaseTab):
            to set the maximum amount of time the behaviors action will
            be run for (in seconds). If not present the default time
            is 60 seconds
+         - OUTLINKS_EXPRESSION: the JS expression to be used for collecting outlinks
+         - CLEAR_OUTLINKS_EXPRESSION: the JS expression to be used for clearing the
+           collected outlinks
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         #: Function expression for retrieving fully resolved URLs in manual_collect_outlinks
         self.href_fn: str = "function () { return this.href; }"
+        config = self.config
         #: The variable name for the outlinks discovered by running the behavior
-        self.outlink_expression: str = "window.$wbOutlinks$"
-        self.clear_outlinks: str = "window.$wbOutlinkSet$.clear()"
+        self.collect_outlinks_expression: str = config.outlinks_expression
+        self.clear_outlinks_expression: str = config.clear_outlinks_expression
         #: The frame manager for the page
         self.frames: FrameManager = None
         self.network: NetworkManager = None
-        self.redis_keys: RedisKeys = RedisKeys(self.browser.autoid)
+        self.redis_keys: RedisKeys = RedisKeys(config.autoid)
         #: The crawling main loop
         self.crawl_loop: Optional[Task] = None
         self.frontier: RedisFrontier = RedisFrontier(self.redis, self.redis_keys)
         #: The maximum amount of time the crawler should run behaviors for
-        self._max_behavior_time: int = self.browser.automation_info.max_behavior_time
-        self._navigation_timeout: int = self.browser.automation_info.navigation_timeout
+        self._max_behavior_time: int = config.max_behavior_time
+        self._navigation_timeout: int = config.navigation_timeout
 
     @classmethod
     def create(cls, *args, **kwargs) -> "CrawlerTab":
@@ -77,19 +82,15 @@ class CrawlerTab(BaseTab):
 
     async def collect_outlinks(self) -> None:
         logged_method = "collect_outlinks"
+        out_links = None
         try:
-            out_links = await self.main_frame.evaluate_expression(
-                self.outlink_expression
-            )
+            out_links = await self.evaluate_in_page(self.collect_outlinks_expression)
         except Exception as e:
             self.logger.exception(
-                logged_method,
-                "mainFrame.evaluate_expression threw an error falling back to evaluate_in_page",
-                exc_info=e,
+                logged_method, "collecting outlinks failed", exc_info=e
             )
-            out_links = await self.evaluate_in_page(self.outlink_expression)
-
-        self.logger.info("crawl", "collected outlinks")
+        else:
+            self.logger.info(logged_method, "collected")
 
         if out_links is not None:
             try:
@@ -100,7 +101,7 @@ class CrawlerTab(BaseTab):
                 )
 
         try:
-            await self.evaluate_in_page(self.clear_outlinks)
+            await self.evaluate_in_page(self.clear_outlinks_expression)
         except Exception as e:
             self.logger.exception(
                 logged_method,
@@ -116,59 +117,49 @@ class CrawlerTab(BaseTab):
             f"crawl loop starting and the frontier is {'exhausted' if frontier_exhausted else 'not exhausted'}",
         )
 
-        helper_one_tick_sleep = Helper.one_tick_sleep
-        log_info = self.logger.info
-        log_critical = self.logger.critical
-        goto = self.goto
-        run_behavior = self.run_behavior
-        should_exit_crawl_loop = self._should_exit_crawl_loop
-        next_crawl_url = self.frontier.next_url
-        indicate_url_crawled = self.frontier.remove_current_from_pending
-        is_frontier_exhausted = self.frontier.exhausted
-
         # loop until frontier is exhausted
         while 1:
-            if frontier_exhausted or should_exit_crawl_loop():
-                log_info(
+            if frontier_exhausted or self._should_exit_crawl_loop():
+                self.logger.info(
                     logged_method, "exiting crawl loop before crawling the next url"
                 )
                 break
 
-            n_url = await next_crawl_url()
-            log_info(logged_method, f"navigating to {n_url}")
+            n_url = await self.frontier.next_url()
+            self.logger.info(logged_method, f"navigating to {n_url}")
 
-            navigation_result = await goto(n_url)
+            navigation_result = await self.goto(n_url)
 
             if navigation_result == NavigationResult.EXIT_CRAWL_LOOP:
-                log_critical(
+                self.logger.critical(
                     logged_method, "exiting crawl loop due to fatal navigation error"
                 )
                 break
 
             if navigation_result != NavigationResult.SKIP_URL:
-                log_info(
+                self.logger.info(
                     logged_method,
                     f"navigated to the next url with no error <url={n_url}>",
                 )
 
                 # maybe run a behavior
-                await run_behavior()
-                await indicate_url_crawled()
+                await self.run_behavior()
+                await self.frontier.remove_current_from_pending()
             else:
-                log_info(
+                self.logger.info(
                     logged_method,
                     f"the URL navigated to is being skipped <url={n_url}>",
                 )
 
-            if should_exit_crawl_loop():
-                log_info(
+            if self._should_exit_crawl_loop():
+                self.logger.info(
                     logged_method, "exiting crawl loop after crawling the current url"
                 )
                 break
             # we sleep for one event loop tick in order to ensure that other
             # coroutines can do their thing if they are waiting. e.g. shutdowns etc
-            await helper_one_tick_sleep()
-            frontier_exhausted = await is_frontier_exhausted()
+            await Helper.one_tick_sleep()
+            frontier_exhausted = await self.frontier.exhausted()
 
         self.logger.info(logged_method, "crawl is finished")
         if not self._graceful_shutdown:
@@ -225,8 +216,7 @@ class CrawlerTab(BaseTab):
                 url, waitUntil=wait, timeout=self._navigation_timeout
             )
             self.logger.info(
-                logged_method,
-                f"we navigated to the page <response={nav_response}>",
+                logged_method, f"we navigated to the page <response={nav_response}>"
             )
             return self._determine_navigation_result(nav_response)
         except NavigationError as ne:
@@ -257,7 +247,7 @@ class CrawlerTab(BaseTab):
         self.logger.info("init", "initializing")
         # must call super init
         await super().init()
-        if self.browser.automation_info.net_cache_disabled:
+        if self.browser.config.net_cache_disabled:
             await self.client.Network.setCacheDisabled(True)
         # enable receiving of frame lifecycle events for the frame manager
         await self.client.Page.setLifecycleEventsEnabled(True)
@@ -279,10 +269,8 @@ class CrawlerTab(BaseTab):
         ) as iin:
             await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
         await self.frontier.init()
-        if self.browser.automation_info.wait_for_q:
-            await self.frontier.wait_for_populated_q(
-                self.browser.automation_info.wait_for_q
-            )
+        if self.config.wait_for_q:
+            await self.frontier.wait_for_populated_q(self.config.wait_for_q)
         self.crawl_loop = self.loop.create_task(self.crawl())
         self.logger.info("init", "initialized")
         await Helper.one_tick_sleep()
@@ -295,7 +283,10 @@ class CrawlerTab(BaseTab):
         logged_method = "run_behavior"
         self._url = self.main_frame.url
         behavior = await self.behavior_manager.behavior_for_url(
-            self.main_frame.url, self, collect_outlinks=True
+            self.main_frame.url,
+            self,
+            collect_outlinks=True,
+            take_screen_shot=self.config.should_take_screenshot,
         )
         self.logger.info(logged_method, f"running behavior {behavior}")
         # we have a behavior to be run so run it
@@ -318,23 +309,31 @@ class CrawlerTab(BaseTab):
                 )
 
     async def manual_collect_outlinks(self) -> None:
+        self.logger.info("manual_collect_outlinks", "collecting")
         await self.client.DOM.enable()
         out_links: List[str] = list()
         nodes = await self.client.DOM.getFlattenedDocument(depth=-1, pierce=True)
+        promises = []
         for node in nodes["nodes"]:
             node_name = node["localName"]
             if node_name == "a" or node_name == "area":
-                runtime_node = await self.client.DOM.resolveNode(nodeId=node["nodeId"])
-                obj_id = runtime_node["object"]["objectId"]
-                results = await self.client.Runtime.callFunctionOn(
-                    self.href_fn, objectId=obj_id
-                )
-                href = results.get("result", {}).get("value")
-                if href is not None:
-                    out_links.append(href)
-                await self.client.Runtime.releaseObject(objectId=obj_id)
+                promises.append(self._extract_href_from_remote_node(node))
+        results = await aio_gather(*promises, loop=self.loop, return_exceptions=True)
+        for result in results:
+            if isinstance(result, str) and result:
+                out_links.append(result)
         await self.client.DOM.disable()
         await self.frontier.add_all(out_links)
+
+    async def _extract_href_from_remote_node(self, node: Dict) -> Optional[str]:
+        runtime_node = await self.client.DOM.resolveNode(nodeId=node["nodeId"])
+        obj_id = runtime_node["object"]["objectId"]
+        results = await self.client.Runtime.callFunctionOn(
+            self.href_fn, objectId=obj_id
+        )
+        href = results.get("result", {}).get("value")
+        await self.client.Runtime.releaseObject(objectId=obj_id)
+        return href
 
     def _crawl_loop_running(self) -> bool:
         return self.crawl_loop is not None and not self.crawl_loop.done()

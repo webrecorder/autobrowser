@@ -1,7 +1,7 @@
 from asyncio import (
     AbstractEventLoop,
     TimeoutError as AIOTimeoutError,
-    create_subprocess_exec as aio_create_subprocess_exec,
+    create_subprocess_exec,
 )
 from asyncio.subprocess import DEVNULL, Process as AIOProcess
 from typing import Dict, List, Optional
@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from async_timeout import timeout
 from cripy import CDP, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_URL
 
-from autobrowser.automation import AutomationConfig, AutomationInfo, BrowserExitInfo
+from autobrowser.automation import AutomationConfig, BrowserExitInfo
 from autobrowser.chrome_browser import Chrome
 from autobrowser.errors import DriverError
 from autobrowser.util import Helper
@@ -29,7 +29,7 @@ class LocalBrowserDiver(BaseDriver):
         self.browser: Chrome = None
 
     def _make_connect_opts(self) -> Dict:
-        connect = self.conf.get("chrome_opts").get("connect", {})
+        connect = self.conf.chrome_opts.get("connect", {})
         return dict(
             frontend_url=connect.get("url", DEFAULT_URL),
             host=connect.get("host", DEFAULT_HOST),
@@ -57,9 +57,9 @@ class LocalBrowserDiver(BaseDriver):
         return tabs
 
     async def launch_browser(self) -> None:
-        chrome_opts = self.conf.get("chrome_opts")
+        chrome_opts = self.conf.chrome_opts
         eloop = self.loop
-        self.chrome_process = await aio_create_subprocess_exec(
+        self.chrome_process = await create_subprocess_exec(
             chrome_opts["exe"],
             *chrome_opts["args"],
             stderr=DEVNULL,
@@ -79,7 +79,7 @@ class LocalBrowserDiver(BaseDriver):
     async def init(self) -> None:
         self.logger.info("init", "initializing")
         await super().init()
-        if self.conf.get("chrome_opts").get("launch", False):
+        if self.conf.chrome_opts.get("launch", False):
             try:
                 async with timeout(60):
                     await self.launch_browser()
@@ -91,14 +91,11 @@ class LocalBrowserDiver(BaseDriver):
             await self.clean_up()
             raise DriverError("No Tabs Were Found To Connect To")
         self.browser = Chrome(
-            info=AutomationInfo(
-                autoid=self.conf.get("autoid", ""),
-                reqid=self.conf.get("reqid", ""),
-                tab_type=self.conf.get("tab_type"),
-                behavior_manager=self.behavior_manager,
-            ),
-            loop=self.loop,
+            config=self.conf,
+            behavior_manager=self.behavior_manager,
+            session=self.session,
             redis=self.redis,
+            loop=self.loop,
         )
         self.browser.on(Chrome.Events.Exiting, self.on_browser_exit)
         await self.browser.init(tabs)

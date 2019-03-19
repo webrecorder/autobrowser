@@ -26,7 +26,7 @@ MAYBE_ADDITIONAL_ARGS = [
     "--enable-features=NetworkService,NetworkServiceInProcess",
     "--enable-features=AwaitOptimization,brotli-encoding",
     "--bypass-app-banner-engagement-checks",
-    "--disable-features=LazyFrameLoading"
+    "--disable-features=LazyFrameLoading",
 ]
 
 # https://cs.chromium.org/chromium/src/chrome/browser/flag_descriptions.cc?q=kAggressiveThreshold&dr=CSs&l=3491
@@ -37,7 +37,7 @@ DEFAULT_ARGS = [
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--disable-ipc-flooding-protection",
-    '--enable-features=NetworkService,NetworkServiceInProcess,brotli-encoding,AwaitOptimization',
+    "--enable-features=NetworkService,NetworkServiceInProcess,brotli-encoding,AwaitOptimization",
     "--disable-client-side-phishing-detection",
     "--disable-default-apps",
     "--disable-extensions",

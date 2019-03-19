@@ -2,14 +2,15 @@ from asyncio import AbstractEventLoop
 from typing import Dict, List, Optional
 
 from redis import Redis
+from aiohttp import ClientSession
 
+from autobrowser.abcs import BehaviorManager, Browser, Tab
 from autobrowser.automation import (
-    AutomationInfo,
+    AutomationConfig,
     BrowserExitInfo,
     CloseReason,
     TabClosedInfo,
 )
-from autobrowser.abcs import BehaviorManager, Browser, Tab
 from autobrowser.tabs import create_tab
 from autobrowser.util import AutoLogger, Helper, create_autologger
 
@@ -21,42 +22,46 @@ class Chrome(Browser):
 
     def __init__(
         self,
-        info: AutomationInfo,
-        loop: Optional[AbstractEventLoop] = None,
+        config: AutomationConfig,
+        behavior_manager: BehaviorManager,
+        session: Optional[ClientSession] = None,
         redis: Optional[Redis] = None,
+        loop: Optional[AbstractEventLoop] = None,
     ) -> None:
         """
-        :param info: The information concerning the automation
+        :param config: The configuration of this automation
         :param loop: Optional reference to the running event loop
         :param redis: Optional instance of redis to use
         """
         super().__init__(loop=Helper.ensure_loop(loop))
-        self._info: AutomationInfo = info
         self.tab_datas: List[Dict] = None
         self.redis: Optional[Redis] = redis
+        self.session: Optional[ClientSession] = session
         self.tabs: Dict[str, Tab] = dict()
         self.tab_closed_reasons: Dict[str, TabClosedInfo] = dict()
         self.running: bool = False
         self.logger: AutoLogger = create_autologger("chrome_browser", "Chrome")
+        self._config: AutomationConfig = config
+        self._behavior_manager: BehaviorManager = behavior_manager
 
     @property
     def autoid(self) -> str:
         """Retrieve the automation id of the running automation"""
-        return self._info.autoid
+        return self._config.autoid
 
     @property
     def reqid(self) -> str:
         """Retrieve the request id for this process of the running
         automation"""
-        return self._info.reqid
+        return self._config.reqid
 
     @property
-    def automation_info(self) -> AutomationInfo:
-        return self._info
+    def config(self) -> AutomationConfig:
+        return self._config
 
     @property
     def behavior_manager(self) -> BehaviorManager:
-        return self._info.behavior_manager
+        return self._behavior_manager
 
     @property
     def loop(self) -> AbstractEventLoop:
@@ -73,7 +78,9 @@ class Chrome(Browser):
         if tab_datas is not None:
             self.tab_datas = tab_datas
         for tab_data in self.tab_datas:
-            tab = await create_tab(self, tab_data, redis=self.redis)
+            tab = await create_tab(
+                self, tab_data, redis=self.redis, session=self.session
+            )
             self.tabs[tab.tab_id] = tab
             tab.on(Tab.Events.Closed, self._tab_closed)
         await Helper.one_tick_sleep()
@@ -86,7 +93,7 @@ class Chrome(Browser):
         """
         if self.running:
             return
-        self.logger.info("reinit", f"<autoid={self._info.autoid}>")
+        self.logger.info("reinit", f"<autoid={self._config.autoid}>")
         await self.init(tab_data)
 
     async def close(self, gracefully: bool = False) -> None:
@@ -105,7 +112,7 @@ class Chrome(Browser):
         self.logger.info(logged_method, "closed")
         self.emit(
             Chrome.Events.Exiting,
-            BrowserExitInfo(self._info, list(self.tab_closed_reasons.values())),
+            BrowserExitInfo(self._config, list(self.tab_closed_reasons.values())),
         )
 
     async def shutdown_gracefully(self) -> None:
@@ -156,7 +163,7 @@ class Chrome(Browser):
         self.tabs.clear()
 
     def __str__(self) -> str:
-        return f"ChromeBrowser(info={self._info}, tabs={self.tabs}, running={self.running})"
+        return f"ChromeBrowser(config={self._config}, tabs={self.tabs}, running={self.running})"
 
     def __repr__(self) -> str:
         return self.__str__()

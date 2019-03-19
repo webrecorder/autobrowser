@@ -19,11 +19,10 @@ __all__ = ["WRBehaviorRunner"]
 @attr_dataclass(slots=True)
 class WRBehaviorRunner(Behavior):
     tab: Tab = attr_ib()
+    next_action_expression: str = attr_ib(repr=False)
     behavior_js: str = attr_ib(repr=False)
-    next_action_expression: str = attr_ib(
-        default="window.$WRIteratorHandler$()", repr=False
-    )
     collect_outlinks: bool = attr_ib(default=False)
+    take_screen_shot: bool = attr_ib(default=False)
     frame: Optional[Union[Frame, Callable[[], Frame]]] = attr_ib(default=None)
     loop: AbstractEventLoop = attr_ib(default=None, repr=False)
     logger: AutoLogger = attr_ib(init=False, default=None, repr=False)
@@ -140,6 +139,11 @@ class WRBehaviorRunner(Behavior):
             )
             raise
         finally:
+            if self.take_screen_shot:
+                try:
+                    await self.tab.capture_and_upload_screenshot()
+                except Exception:
+                    pass
             self.tab.unset_running_behavior(self)
 
     async def timed_run(self, max_run_time: Union[int, float]) -> None:
@@ -147,7 +151,10 @@ class WRBehaviorRunner(Behavior):
             async with aio_timeout(max_run_time, loop=self.loop):
                 await self.run()
         except AIOTimeoutError:
-            self.logger.info("timed_run", f"the maximum run time was exceeded <max_run_time={max_run_time}>")
+            self.logger.info(
+                "timed_run",
+                f"the maximum run time was exceeded <max_run_time={max_run_time}>",
+            )
         except AIOCancelledError:
             pass
         except Exception:

@@ -5,7 +5,7 @@ from operator import itemgetter
 from typing import Counter as CounterT, List, Optional
 
 from aiohttp import ClientSession
-from aioredis import Redis, create_redis_pool as aioredis_create_redis_pool
+from aioredis import Redis, create_redis_pool
 
 from autobrowser.abcs import Driver
 from autobrowser.automation import AutomationConfig, BrowserExitInfo, ShutdownCondition
@@ -31,10 +31,7 @@ class BaseDriver(Driver, ABC):
         self.shutdown_condition: ShutdownCondition = ShutdownCondition(loop=self.loop)
         self.session: ClientSession = Helper.create_aio_http_client_session(loop)
         self.behavior_manager: RemoteBehaviorManager = RemoteBehaviorManager(
-            behavior_endpoint=self.conf.get("fetch_behavior_endpoint"),
-            behavior_info_endpoint=self.conf.get("fetch_behavior_info_endpoint"),
-            session=self.session,
-            loop=self.loop,
+            conf=self.conf, session=self.session, loop=self.loop
         )
         self.redis: Redis = None
         self.logger: AutoLogger = create_autologger("drivers", self.__class__.__name__)
@@ -45,7 +42,7 @@ class BaseDriver(Driver, ABC):
         redis_url = self.conf.get("redis_url")
         self.logger.info("init", f"connecting to redis <url={redis_url}>")
         self.did_init = True
-        self.redis = await aioredis_create_redis_pool(
+        self.redis = await create_redis_pool(
             redis_url, loop=self.loop, encoding="utf-8"
         )
         self.logger.info("init", f"connected to redis <url={redis_url}>")
@@ -123,7 +120,9 @@ class BaseDriver(Driver, ABC):
         elif beis_len == 1:
             self.logger.info(logged_method, "1 browser exit info, using its exit code")
             return self._browser_exit_infos[0].exit_reason_code()
-        self.logger.info(logged_method, f"{beis_len} browser exit infos, using their exit code")
+        self.logger.info(
+            logged_method, f"{beis_len} browser exit infos, using their exit code"
+        )
         browser_exit_counter: CounterT[int] = Counter()
         for bei in self._browser_exit_infos:
             browser_exit_counter[bei.exit_reason_code()] += 1

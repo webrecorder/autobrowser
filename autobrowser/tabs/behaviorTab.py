@@ -1,5 +1,3 @@
-from typing import Any
-
 from autobrowser.util.helper import Helper
 from .basetab import BaseTab
 
@@ -11,19 +9,12 @@ class BehaviorTab(BaseTab):
     def create(cls, *args, **kwargs) -> "BehaviorTab":
         return cls(*args, **kwargs)
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._page_url_expression: str = "window.location.href"
-        self._pflag_exists_expression: str = (
-            "typeof window.$WBBehaviorPaused !== 'undefined'"
-        )
-
     async def resume_behaviors(self) -> None:
         logged_method = "resume_behaviors"
         await super().resume_behaviors()
-        url = await self.evaluate_in_page(self._page_url_expression)
+        url = await self.evaluate_in_page(self.config.page_url_expression)
         behavior_paused_flag = await self.evaluate_in_page(
-            self._pflag_exists_expression
+            self.config.behavior_paused_expression
         )
         behavior_not_running = (
             self._running_behavior is None or self._running_behavior.done
@@ -71,10 +62,13 @@ class BehaviorTab(BaseTab):
 
     async def _run_behavior_for_current_url(self) -> None:
         behavior = await self.behavior_manager.behavior_for_url(
-            self._curr_behavior_url, self
+            self._curr_behavior_url,
+            self,
+            take_screen_shot=self.config.should_take_screenshot,
         )
         self.logger.info(
             "_run_behavior_for_current_url",
             f"starting behavior {behavior} for {self._curr_behavior_url}",
         )
+        await self.evaluate_in_page(self.config.no_out_links_express)
         self._behavior_run_task = self.loop.create_task(behavior.run())

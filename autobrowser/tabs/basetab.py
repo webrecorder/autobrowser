@@ -3,13 +3,15 @@ from abc import ABC
 from asyncio import AbstractEventLoop, Task, gather as aio_gather, sleep as aio_sleep
 from base64 import b64decode
 from typing import Any, Awaitable, Dict, Optional
-
+from math import ceil as math_ceil
 from aioredis import Redis
+from aiohttp import ClientSession, ClientResponseError
 from cripy import Client, connect
+from io import BytesIO
 from simplechrome.network_idle_monitor import NetworkIdleMonitor
 
 from autobrowser.abcs import Behavior, BehaviorManager, Browser, Tab
-from autobrowser.automation import AutomationInfo, CloseReason, TabClosedInfo
+from autobrowser.automation import AutomationConfig, CloseReason, TabClosedInfo
 from autobrowser.util import AutoLogger, Helper, create_autologger
 
 __all__ = ["BaseTab"]
@@ -23,12 +25,14 @@ class BaseTab(Tab, ABC):
         browser: Browser,
         tab_data: Dict[str, str],
         redis: Optional[Redis] = None,
+        session: Optional[ClientSession] = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
         super().__init__(loop=Helper.ensure_loop(browser.loop))
         self.browser: Browser = browser
         self.redis = redis
+        self.session = session
         self.tab_data: Dict[str, str] = tab_data
         self.client: Client = None
         self.target_info: Optional[Dict] = None
@@ -56,16 +60,16 @@ class BaseTab(Tab, ABC):
         return self._behaviors_paused
 
     @property
+    def connection_closed(self) -> bool:
+        return self._connection_closed
+
+    @property
     def behavior_manager(self) -> BehaviorManager:
         return self.browser.behavior_manager
 
     @property
-    def automation_info(self) -> AutomationInfo:
-        return self.browser.automation_info
-
-    @property
-    def connection_closed(self) -> bool:
-        return self._connection_closed
+    def config(self) -> AutomationConfig:
+        return self.browser.config
 
     @property
     def autoid(self) -> str:
@@ -164,7 +168,7 @@ class BaseTab(Tab, ABC):
             num_inflight=num_inflight,
             idle_time=idle_time,
             global_wait=global_wait,
-            loop=self.loop
+            loop=self.loop,
         )
 
     async def _wait_for_reconnect(self) -> None:
@@ -225,7 +229,9 @@ class BaseTab(Tab, ABC):
             return
         logged_method = "connect_to_tab"
         self.logger.info(logged_method, f"connecting to the browser {self.tab_data}")
-        self.client = await connect(self.tab_data["webSocketDebuggerUrl"], remote=True, loop=self.loop)
+        self.client = await connect(
+            self.tab_data["webSocketDebuggerUrl"], remote=True, loop=self.loop
+        )
 
         self.logger.info(logged_method, "connected to browser")
 
@@ -289,8 +295,68 @@ class BaseTab(Tab, ABC):
 
         :return: The captured screenshot as bytes
         """
-        result = await self.client.Page.captureScreenshot(format="png")
+        logged_method = "capture_screenshot"
+        self.logger.info(logged_method, "capturing screenshot of page")
+        metrics = await self.client.Page.getLayoutMetrics()
+        content_size = metrics["contentSize"]
+        width = math_ceil(content_size["width"])
+        height = math_ceil(content_size["height"])
+        clip = dict(x=0, y=0, width=width, height=height, scale=1)
+        await self.client.Emulation.setDeviceMetricsOverride(
+            mobile=False,
+            width=width,
+            height=height,
+            deviceScaleFactor=1,
+            screenOrientation=dict(angle=0, type="portraitPrimary"),
+        )
+        result = await self.client.Page.captureScreenshot(clip=clip, format="png")
+        await self.client.Emulation.clearDeviceMetricsOverride()
+        self.logger.info(logged_method, "captured screenshot of page")
         return b64decode(result.get("data", b""))
+
+    async def capture_and_upload_screenshot(self) -> None:
+        logged_method = "capture_and_upload_screenshot"
+        screen_shot = None
+        try:
+            screen_shot = await self.capture_screenshot()
+        except Exception as e:
+            self.logger.exception(
+                logged_method, "capturing a screenshot of the page failed", exc_info=e
+            )
+        if screen_shot is not None:
+            self.logger.info(
+                logged_method,
+                "sending the captured screenshot to the configured endpoint",
+            )
+            try:
+                config = self.config
+                content_type = "image/png"
+                async with self.session.put(
+                    config.screenshot_api_url,
+                    params=dict(
+                        reqid=config.reqid,
+                        target_uri=config.screenshot_target_uri,
+                        content_type=content_type,
+                    ),
+                    data=BytesIO(screen_shot),
+                    headers={"content-type": content_type},
+                ) as resp:
+                    resp.raise_for_status()
+            except ClientResponseError as e:
+                self.logger.exception(
+                    logged_method,
+                    "sent the captured screenshot but the server indicates a failure",
+                    exc_info=e,
+                )
+            except Exception as e:
+                self.logger.exception(
+                    logged_method, "sending the captured screenshot failed", exc_info=e
+                )
+            else:
+                self.logger.info(
+                    logged_method,
+                    "sent the captured screenshot to the configured endpoint",
+                )
 
     async def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         """Listener function for when the target has crashed.
@@ -324,9 +390,7 @@ class BaseTab(Tab, ABC):
     def __str__(self) -> str:
         name = self.__class__.__name__
         info = f"graceful_shutdown={self._graceful_shutdown}, tab_id={self.tab_id}"
-        return (
-            f"{name}(url={self._url}, running={self._running} connected={not self._connection_closed}, {info})"
-        )
+        return f"{name}(url={self._url}, running={self._running} connected={not self._connection_closed}, {info})"
 
     def __repr__(self) -> str:
         return self.__str__()

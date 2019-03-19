@@ -1,6 +1,5 @@
 from .details import (
     AutomationConfig,
-    AutomationInfo,
     BrowserExitInfo,
     CloseReason,
     RedisKeys,
@@ -12,7 +11,6 @@ from .shutdown import ShutdownCondition
 
 __all__ = [
     "AutomationConfig",
-    "AutomationInfo",
     "BrowserExitInfo",
     "CloseReason",
     "RedisKeys",

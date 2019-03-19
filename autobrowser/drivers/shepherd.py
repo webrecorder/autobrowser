@@ -5,7 +5,7 @@ from ujson import loads as ujson_loads
 
 from aioredis import Channel
 
-from autobrowser.automation import AutomationConfig, AutomationInfo, BrowserExitInfo
+from autobrowser.automation import AutomationConfig, BrowserExitInfo
 from autobrowser.chrome_browser import Chrome
 from autobrowser.errors import BrowserStagingError
 from .basedriver import BaseDriver
@@ -37,9 +37,9 @@ class ShepherdDriver(BaseDriver, ABC):
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
         super().__init__(conf, loop)
-        self.browser_info_url: str = self.conf["api_host"] + GET_BROWSER_INFO_URL
-        self.request_new_browser_url: str = self.conf["api_host"] + REQ_BROWSER_URL
-        self.init_browser_url: str = self.conf["api_host"] + INIT_BROWSER_URL
+        self.browser_info_url: str = self.conf.make_shepherd_url(GET_BROWSER_INFO_URL)
+        self.request_new_browser_url: str = self.conf.make_shepherd_url(REQ_BROWSER_URL)
+        self.init_browser_url: str = self.conf.make_shepherd_url(INIT_BROWSER_URL)
         self.pubsub_channel: Channel = None
         self.pubsub_task: Task = None
 
@@ -47,7 +47,7 @@ class ShepherdDriver(BaseDriver, ABC):
         self, browser_id: str, data: Optional[Any] = None
     ) -> str:
         async with self.session.post(
-            self.request_new_browser_url.format(browser=browser_id), data=data
+            self.conf.request_new_browser_url(browser_id), data=data
         ) as response:
             json = await response.json(loads=ujson_loads)  # type: Dict[str, str]
         reqid = json.get("reqid")
@@ -66,7 +66,7 @@ class ShepherdDriver(BaseDriver, ABC):
         self_session_get = self.session.get
         self_logger_info = self.logger.info
         self_logger_exception = self.logger.exception
-        init_browser_url = self.init_browser_url.format(reqid=reqid)
+        init_browser_url = self.conf.init_browser_url(reqid)
 
         while 1:
             async with self_session_get(init_browser_url, headers=headers) as response:
@@ -81,7 +81,7 @@ class ShepherdDriver(BaseDriver, ABC):
                     break
                 self_logger_info(logged_method, f"Waiting for Browser: {data}")
                 await aio_sleep(WAIT_TIME, loop=eloop)
-        tab_datas = await self.wait_for_tabs(data.get("ip"), self.conf["num_tabs"])
+        tab_datas = await self.wait_for_tabs(data.get("ip"), self.conf.num_tabs)
         return dict(ip=data.get("ip"), reqid=reqid, tab_datas=tab_datas)
 
     async def wait_for_tabs(self, ip: str, num_tabs: int = 0) -> List[Dict[str, str]]:
@@ -117,7 +117,7 @@ class ShepherdDriver(BaseDriver, ABC):
         logged_method = f"find_browser_tabs<ip={ip}, url={url}>"
 
         try:
-            async with self.session.get(CDP_JSON.format(ip=ip)) as res:
+            async with self.session.get(self.conf.cdp_json_url(ip)) as res:
                 tabs = await res.json(loads=ujson_loads)
         except Exception as e:
             self.logger.exception(
@@ -147,7 +147,7 @@ class ShepherdDriver(BaseDriver, ABC):
         :param reqid: The request id to retrieve the ip address for
         :return: The ip address associated with the request id if it exists
         """
-        url = self.browser_info_url.format(reqid=reqid)
+        url = self.conf.browser_info_url(reqid)
         logged_method = f"get_ip_for_reqid(reqid={reqid})"
         self.logger.info(
             logged_method, f"Retrieving the ip associated with the reqid <url={url}>"
@@ -161,7 +161,7 @@ class ShepherdDriver(BaseDriver, ABC):
         return None
 
     async def create_browser_tab(self, ip: str) -> Dict[str, str]:
-        async with self.session.get(CDP_JSON_NEW.format(ip=ip)) as res:
+        async with self.session.get(self.conf.cdp_json_new_url(ip)) as res:
             return await res.json(loads=ujson_loads)
 
     async def clean_up(self) -> None:
@@ -191,17 +191,14 @@ class SingleBrowserDriver(ShepherdDriver):
         self.logger.info("init", "initializing")
         await super().init()
         tab_datas = await self.wait_for_tabs(
-            self.conf.get("browser_host_ip"), self.conf.get("num_tabs")
+            self.conf.browser_host_ip, self.conf.num_tabs
         )
         self.browser = Chrome(
-            info=AutomationInfo(
-                autoid=self.conf.get("autoid"),
-                tab_type=self.conf.get("tab_type"),
-                reqid=self.conf.get("reqid", ""),
-                behavior_manager=self.behavior_manager,
-            ),
-            loop=self.loop,
+            config=self.conf,
+            behavior_manager=self.behavior_manager,
+            session=self.session,
             redis=self.redis,
+            loop=self.loop,
         )
         self.browser.on(Chrome.Events.Exiting, self.on_browser_exit)
         await self.browser.init(tab_datas)
@@ -209,7 +206,7 @@ class SingleBrowserDriver(ShepherdDriver):
 
     async def get_auto_event_channel(self) -> Channel:
         channels = await self.redis.subscribe(
-            "wr.auto-event:{reqid}".format(reqid=self.conf.get("reqid", ""))
+            "wr.auto-event:{reqid}".format(reqid=self.conf.reqid)
         )
         return channels[0]
 
@@ -291,19 +288,16 @@ class MultiBrowserDriver(ShepherdDriver):
             if tab_datas is None:
                 # no tab found, init new browser
                 results = await self.init_new_browser(
-                    self.conf.get("browser_id"), self.conf.get("cdata")
+                    self.conf.browser_id, self.conf.get("cdata")
                 )
                 tab_datas = results["tab_datas"]
 
             browser = Chrome(
-                info=AutomationInfo(
-                    reqid=reqid,
-                    autoid=self.conf.get("autoid"),
-                    tab_type=self.conf.get("tab_type"),
-                    behavior_manager=self.behavior_manager,
-                ),
-                loop=self.loop,
+                config=self.conf,
+                behavior_manager=self.behavior_manager,
+                session=self.session,
                 redis=self.redis,
+                loop=self.loop,
             )
 
             await browser.init(tab_datas)

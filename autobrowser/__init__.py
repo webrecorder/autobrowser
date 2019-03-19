@@ -1,7 +1,6 @@
 from .abcs import Behavior, BehaviorManager, Browser, Driver, Tab
 from .automation import (
     AutomationConfig,
-    AutomationInfo,
     BrowserExitInfo,
     CloseReason,
     RedisKeys,
@@ -34,7 +33,6 @@ __all__ = [
     "AutoLogger",
     "AutoTabError",
     "AutomationConfig",
-    "AutomationInfo",
     "BaseDriver",
     "BaseTab",
     "Behavior",

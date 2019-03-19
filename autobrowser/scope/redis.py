@@ -37,7 +37,8 @@ class RedisScope:
         num_rules = len(self.rules)
         self.all_links = num_rules == 0
         self_logger_info(
-            logged_method, f"initialized <num rules={num_rules}, all links={self.all_links}>"
+            logged_method,
+            f"initialized <num rules={num_rules}, all links={self.all_links}>",
         )
 
     def in_scope(self, url: str) -> bool:

@@ -7,7 +7,7 @@ from pyee2 import EventEmitter
 from .events import BrowserEvents, TabEvents
 
 if TYPE_CHECKING:
-    from autobrowser.automation import AutomationInfo, BrowserExitInfo, TabClosedInfo
+    from autobrowser.automation import AutomationConfig, BrowserExitInfo, TabClosedInfo
 
 __all__ = ["Behavior", "BehaviorManager", "Browser", "Driver", "Tab"]
 
@@ -151,7 +151,7 @@ class Browser(EventEmitter, ABC):
 
     @property
     @abstractmethod
-    def automation_info(self) -> "AutomationInfo":
+    def config(self) -> "AutomationConfig":
         pass
 
     @property
@@ -312,7 +312,7 @@ class Tab(EventEmitter, ABC):
 
     @property
     @abstractmethod
-    def automation_info(self) -> "AutomationInfo":
+    def config(self) -> "AutomationConfig":
         pass
 
     @property
@@ -444,8 +444,13 @@ class Tab(EventEmitter, ABC):
     @abstractmethod
     async def capture_screenshot(self) -> bytes:
         """Capture a screenshot (in png format) of the current page.
-
         :return: The captured screenshot as bytes
+        """
+
+    @abstractmethod
+    async def capture_and_upload_screenshot(self) -> None:
+        """Capture a screenshot (in png format) of the current page
+        and sends the captured screenshot to the configured endpoint
         """
 
     @classmethod
