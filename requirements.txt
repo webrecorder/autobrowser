@@ -1,6 +1,8 @@
 aiodns
 aiofiles
 aiohttp
+aiohttp_jinja2
+aiojobs
 aioredis
 async-timeout
 attrs

@@ -1,5 +1,5 @@
-import socket
 import logging
+import socket
 from collections import Counter
 from enum import Enum, auto
 from os import environ
@@ -29,9 +29,9 @@ def get_browser_host_ip(browser_host: Optional[str] = None) -> Optional[str]:
 
 def env(
     key: str,
-    type_: Type[Union[str, bool, int, dict]] = str,
+    type_: Type[Union[str, bool, int, dict, float]] = str,
     default: Optional[Any] = None,
-) -> Union[str, int, bool, Dict]:
+) -> Union[str, int, bool, float, Dict]:
     """Returns the value of the supplied env key name converting
     the env key's value to the specified type.
 
@@ -67,7 +67,14 @@ def env(
             return int(val)
         except ValueError:
             raise ValueError(
-                f"Invalid environment variable '{key}' (expected ab integer): '{val}'"
+                f"Invalid environment variable '{key}' (expected a integer): '{val}'"
+            )
+    elif type_ == float:
+        try:
+            return float(val)
+        except ValueError:
+            raise ValueError(
+                f"Invalid environment variable '{key}' (expected a float): '{val}'"
             )
     elif type_ == dict:
         return ujson_loads(val)
@@ -86,10 +93,10 @@ class AutomationConfig:
     browser_id: str = attr_ib(default=None)
     num_tabs: int = attr_ib(default=None)
     tab_type: str = attr_ib(default=None)
-    max_behavior_time: int = attr_ib(default=60)
-    navigation_timeout: int = attr_ib(default=30)
+    max_behavior_time: Union[int, float] = attr_ib(default=60)
+    navigation_timeout: Union[int, float] = attr_ib(default=30)
+    wait_for_q: Optional[Union[int, float]] = attr_ib(default=60)
     net_cache_disabled: bool = attr_ib(default=True)
-    wait_for_q: int = attr_ib(default=True)
 
     # configuration details concerning redis
     redis_url: str = attr_ib(default=None)
@@ -258,10 +265,10 @@ def build_automation_config(
         autoid=env("AUTO_ID", default=""),
         reqid=env("REQ_ID", default=""),
         chrome_opts=env("CHROME_OPTS", type_=dict),
-        max_behavior_time=env("BEHAVIOR_RUN_TIME", type_=int, default=60),
-        navigation_timeout=env("NAV_TO", type_=int, default=30),
+        max_behavior_time=env("BEHAVIOR_RUN_TIME", type_=float, default=60),
+        navigation_timeout=env("NAV_TO", type_=float, default=30),
+        wait_for_q=env("WAIT_FOR_Q", type_=float, default=60),
         net_cache_disabled=env("CRAWL_NO_NETCACHE", type_=bool, default=True),
-        wait_for_q=env("WAIT_FOR_Q", type_=bool, default=True),
         behavior_api_url=behavior_api_url,
         fetch_behavior_endpoint=env(
             "FETCH_BEHAVIOR_ENDPOINT", default=f"{behavior_api_url}/behavior?url="
@@ -271,11 +278,11 @@ def build_automation_config(
         ),
         screenshot_api_url=env("SCREENSHOT_API_URL"),
         screenshot_target_uri=env("SCREENSHOT_TARGET_URI"),
-        screenshot_format=env("SCREENSHOT_FORMAT"),
+        screenshot_format=env("SCREENSHOT_FORMAT", default='png'),
         cdp_port=env("CDP_PORT", default="9222"),
         req_browser_path=env("REQ_BROWSER_PATH", default="/request_browser/"),
-        init_browser_pathq=env("REQ_BROWSER_PATH", default="/init_browser?reqid="),
-        browser_info_path=env("GET_BROWSER_INFO_URL", default="/info/"),
+        init_browser_pathq=env("INIT_BROWSER_PATH", default="/init_browser?reqid="),
+        browser_info_path=env("GET_BROWSER_INFO_PATH", default="/info/"),
         behavior_action_expression=env(
             "BEHAVIOR_ACTION_EXPRESSION", default="window.$WRIteratorHandler$()"
         ),

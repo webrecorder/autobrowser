@@ -32,12 +32,13 @@ MAYBE_ADDITIONAL_ARGS = [
 # https://cs.chromium.org/chromium/src/chrome/browser/flag_descriptions.cc?q=kAggressiveThreshold&dr=CSs&l=3491
 DEFAULT_ARGS = [
     "--remote-debugging-port=9222",
+    "--disable-gpu-process-crash-limit",
+    "--disable-backing-store-limit",
     "--disable-background-networking",
     "--disable-background-timer-throttling",
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--disable-ipc-flooding-protection",
-    "--enable-features=NetworkService,NetworkServiceInProcess,brotli-encoding,AwaitOptimization",
     "--disable-client-side-phishing-detection",
     "--disable-default-apps",
     "--disable-extensions",
@@ -50,6 +51,7 @@ DEFAULT_ARGS = [
     "--disable-features=site-per-process,TranslateUI,LazyFrameLoading",
     "--disable-breakpad",
     "--disable-backing-store-limit",
+    "--enable-features=NetworkService,NetworkServiceInProcess,brotli-encoding,AwaitOptimization",
     "--metrics-recording-only",
     "--no-first-run",
     "--safebrowsing-disable-auto-update",
