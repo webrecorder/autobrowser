@@ -1,5 +1,5 @@
 import logging
-from typing import Set, Tuple, List
+from typing import List, Set, Tuple
 
 import attr
 

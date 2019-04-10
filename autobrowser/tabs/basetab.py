@@ -2,12 +2,13 @@
 from abc import ABC
 from asyncio import AbstractEventLoop, Task, gather as aio_gather, sleep as aio_sleep
 from base64 import b64decode
-from typing import Any, Awaitable, Dict, Optional
-from math import ceil as math_ceil
-from aioredis import Redis
-from aiohttp import ClientSession, ClientResponseError
-from cripy import Client, connect
 from io import BytesIO
+from math import ceil as math_ceil
+from typing import Any, Awaitable, Dict, Optional
+
+from aiohttp import ClientResponseError, ClientSession
+from aioredis import Redis
+from cripy import Client, connect
 from simplechrome.network_idle_monitor import NetworkIdleMonitor
 
 from autobrowser.abcs import Behavior, BehaviorManager, Browser, Tab
@@ -126,14 +127,16 @@ class BaseTab(Tab, ABC):
         await self.evaluate_in_page("window.$WBBehaviorPaused = false;")
         self._behaviors_paused = False
 
-    def stop_reconnecting(self) -> None:
+    async def stop_reconnecting(self) -> None:
         """Stops the reconnection process if it is under way"""
         if not self.reconnecting or self._reconnect_promise is None:
             return
         if self._reconnect_promise.done():
             return
+
         try:
             self._reconnect_promise.cancel()
+            await self._reconnect_promise
         except Exception:
             pass
         self._reconnecting = False
@@ -196,15 +199,32 @@ class BaseTab(Tab, ABC):
         :param js_string: The string of JavaScript to be evaluated
         :return: The results of the evaluation if any
         """
-        self.logger.info("evaluate_in_page", "evaluating js in page")
-        results = await self.client.Runtime.evaluate(
-            js_string,
-            contextId=contextId,
-            userGesture=True,
-            awaitPromise=True,
-            includeCommandLineAPI=True,
-            returnByValue=True,
-        )
+        logged_method = "evaluate_in_page"
+        self.logger.info(logged_method, "evaluating js in page")
+        try:
+            results = await self.client.Runtime.evaluate(
+                js_string,
+                contextId=contextId,
+                userGesture=True,
+                awaitPromise=True,
+                includeCommandLineAPI=True,
+                returnByValue=True,
+            )
+        except Exception as e:
+            self.logger.exception(
+                logged_method,
+                "evaluating js in page failed due to an python error",
+                exc_info=e,
+            )
+            return {"done": True}
+        js_exception = results.get("exceptionDetails")
+        if js_exception:
+            jse_dets = Helper.getExceptionMessage(js_exception)
+            self.logger.critical(
+                logged_method,
+                f"evaluating js in page failed due to an JS error - {jse_dets}",
+            )
+            return {}
         return results.get("result", {}).get("value")
 
     async def goto(self, url: str, *args: Any, **kwargs: Any) -> Any:
@@ -275,7 +295,7 @@ class BaseTab(Tab, ABC):
                 self._close_reason = CloseReason.CLOSED
         self.logger.info("close", "closing client")
         if self.reconnecting:
-            self.stop_reconnecting()
+            await self.stop_reconnecting()
         if self.client:
             self.client.remove_all_listeners()
             await self.client.dispose()
@@ -301,15 +321,17 @@ class BaseTab(Tab, ABC):
         content_size = metrics["contentSize"]
         width = math_ceil(content_size["width"])
         height = math_ceil(content_size["height"])
-        clip = dict(x=0, y=0, width=width, height=height, scale=1)
         await self.client.Emulation.setDeviceMetricsOverride(
             mobile=False,
             width=width,
             height=height,
             deviceScaleFactor=1,
-            screenOrientation=dict(angle=0, type="portraitPrimary"),
+            screenOrientation={'angle': 0, 'type': "portraitPrimary"},
         )
-        result = await self.client.Page.captureScreenshot(clip=clip, format="png")
+        result = await self.client.Page.captureScreenshot(
+            clip={'x': 0, 'y': 0, 'width': width, 'height': height, 'scale': 1},
+            format="png",
+        )
         await self.client.Emulation.clearDeviceMetricsOverride()
         self.logger.info(logged_method, "captured screenshot of page")
         return b64decode(result.get("data", b""))
@@ -333,11 +355,11 @@ class BaseTab(Tab, ABC):
                 content_type = "image/png"
                 async with self.session.put(
                     config.screenshot_api_url,
-                    params=dict(
-                        reqid=config.reqid,
-                        target_uri=config.screenshot_target_uri,
-                        content_type=content_type,
-                    ),
+                    params={
+                        "reqid": config.reqid,
+                        "target_uri": config.screenshot_target_uri,
+                        "content_type": content_type,
+                    },
                     data=BytesIO(screen_shot),
                     headers={"content-type": content_type},
                 ) as resp:

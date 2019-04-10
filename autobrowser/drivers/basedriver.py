@@ -52,14 +52,24 @@ class BaseDriver(Driver, ABC):
 
         This method should be called from subclasses shutdown.
         """
-        if self.redis is None:
-            return
-        self.logger.info("clean_up", "closing redis connection")
-        self.redis.close()
-        await self.redis.wait_closed()
+        logged_method = "clean_up"
+
+        if self.redis is not None:
+            self.logger.info(logged_method, "closing redis connection")
+            self.redis.close()
+            await Helper.no_raise_await(self.redis.wait_closed())
+            self.logger.info(logged_method, "closed redis connection")
+
+        if not self.session.closed:
+            self.logger.info(logged_method, "closing HTTP session")
+            await Helper.no_raise_await(self.session.close())
+            self.logger.info(logged_method, "closed HTTP session")
+
+        # ensure all underlying connections are closed
+        await Helper.one_tick_sleep()
         self.redis = None
         self.behavior_manager = None
-        self.logger.info("clean_up", "closed redis connection")
+        self.session = None
 
     async def run(self) -> int:
         """Start running the driver.

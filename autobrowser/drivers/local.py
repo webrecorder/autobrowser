@@ -29,15 +29,25 @@ class LocalBrowserDiver(BaseDriver):
         self.browser: Chrome = None
 
     def _make_connect_opts(self) -> Dict:
+        """Returns a dictionary to be used as the keyword args
+        to for CDP methods
+
+        :return: The dictionary to be used as keyword argument
+        for CDP methods
+        """
         connect = self.conf.chrome_opts.get("connect", {})
-        return dict(
-            frontend_url=connect.get("url", DEFAULT_URL),
-            host=connect.get("host", DEFAULT_HOST),
-            port=connect.get("port", DEFAULT_PORT),
-            secure=connect.get("secure", False),
-        )
+        return {
+            "frontend_url": connect.get("url", DEFAULT_URL),
+            "host": connect.get("host", DEFAULT_HOST),
+            "port": connect.get("port", DEFAULT_PORT),
+            "secure": connect.get("secure", False),
+        }
 
     async def get_tabs(self) -> List[Dict[str, str]]:
+        """Returns a list of tabs in the remote (locally remote) browser
+
+        :return: The list of tabs in the browser
+        """
         tabs: List[Dict[str, str]] = []
         tabs_append = tabs.append
         cdp_new_tab = CDP.New
@@ -57,6 +67,7 @@ class LocalBrowserDiver(BaseDriver):
         return tabs
 
     async def launch_browser(self) -> None:
+        """Launches the local browser"""
         chrome_opts = self.conf.chrome_opts
         eloop = self.loop
         self.chrome_process = await create_subprocess_exec(

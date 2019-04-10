@@ -1,11 +1,10 @@
-from signal import SIGTERM
 from asyncio import AbstractEventLoop, Event
+from signal import SIGTERM
 from typing import Any
 
 from attr import dataclass as attr_dataclass, ib as attr_ib
 
 from autobrowser.util import Helper
-
 
 __all__ = ["ShutdownCondition"]
 
@@ -26,17 +25,22 @@ class ShutdownCondition:
 
     @property
     def shutdown_condition_met(self) -> bool:
+        """Returns T/F indicating if the shutdown condition has been met"""
         return self._shutdown_event.is_set()
 
     @property
     def shutdown_from_signal(self) -> bool:
+        """Returns T/F indicating if the shutdown was initiated by signal"""
         return self._shutdown_from_signal
 
     def initiate_shutdown(self) -> None:
+        """Initiates the shutdown of the automation"""
         if not self._shutdown_event.is_set():
             self._shutdown_event.set()
 
     def _initiate_shutdown_signal(self) -> None:
+        """Initiates the shutdown of the automation when the
+        shutdown signal was received"""
         if not self._shutdown_event.is_set():
             self._shutdown_event.set()
 

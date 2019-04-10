@@ -1,5 +1,5 @@
 import logging
-from typing import Set, List
+from typing import List, Set
 
 import attr
 from urlcanon import parse_url

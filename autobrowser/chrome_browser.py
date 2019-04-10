@@ -1,8 +1,8 @@
 from asyncio import AbstractEventLoop
 from typing import Dict, List, Optional
 
-from redis import Redis
 from aiohttp import ClientSession
+from redis import Redis
 
 from autobrowser.abcs import BehaviorManager, Browser, Tab
 from autobrowser.automation import (
@@ -37,8 +37,8 @@ class Chrome(Browser):
         self.tab_datas: List[Dict] = None
         self.redis: Optional[Redis] = redis
         self.session: Optional[ClientSession] = session
-        self.tabs: Dict[str, Tab] = dict()
-        self.tab_closed_reasons: Dict[str, TabClosedInfo] = dict()
+        self.tabs: Dict[str, Tab] = {}
+        self.tab_closed_reasons: Dict[str, TabClosedInfo] = {}
         self.running: bool = False
         self.logger: AutoLogger = create_autologger("chrome_browser", "Chrome")
         self._config: AutomationConfig = config

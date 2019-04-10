@@ -146,23 +146,22 @@ class Browser(EventEmitter, ABC):
     @property
     @abstractmethod
     def reqid(self) -> str:
-        """Retrieve the request id for this process of the running
-        automation"""
+        """Retrieve the request id for this process of the running automation"""
 
     @property
     @abstractmethod
     def config(self) -> "AutomationConfig":
-        pass
+        """Returns the config for the automation"""
 
     @property
     @abstractmethod
     def behavior_manager(self) -> BehaviorManager:
-        pass
+        """Returns the behavior manager for the automation"""
 
     @property
     @abstractmethod
     def loop(self) -> AbstractEventLoop:
-        pass
+        """Returns the event loop instance used by the automation"""
 
     @abstractmethod
     async def init(self, tab_datas: Optional[List[Dict]] = None) -> None:
@@ -282,7 +281,6 @@ class Driver(ABC):
 
         :return: The exit code determined by `determine_exit_code`
         """
-        pass
 
     @abstractmethod
     def on_browser_exit(self, info: "BrowserExitInfo") -> None:
@@ -292,7 +290,6 @@ class Driver(ABC):
         :param info: BrowserExitInfo about the browser
         that exited
         """
-        pass
 
 
 class Tab(EventEmitter, ABC):
@@ -303,22 +300,22 @@ class Tab(EventEmitter, ABC):
     @property
     @abstractmethod
     def loop(self) -> AbstractEventLoop:
-        pass
+        """Returns the event loop instance used by the automation"""
 
     @property
     @abstractmethod
     def behavior_manager(self) -> BehaviorManager:
-        pass
+        """Returns the behavior manager for the automation"""
 
     @property
     @abstractmethod
     def config(self) -> "AutomationConfig":
-        pass
+        """Returns the config for the automation"""
 
     @property
     @abstractmethod
     def connection_closed(self) -> bool:
-        pass
+        """Returns T/F indicating if the connection to tab is closed"""
 
     @property
     @abstractmethod
@@ -468,4 +465,3 @@ class Tab(EventEmitter, ABC):
         Only tabs that require the extraction of outlinks should override
         (provide implementation) for this method.
         """
-        pass

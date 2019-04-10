@@ -4,9 +4,9 @@ from collections import Counter
 from enum import Enum, auto
 from os import environ
 from typing import Any, Counter as CounterT, Dict, List, Optional, Type, Union
-from ujson import loads as ujson_loads
 
 from attr import dataclass as attr_dataclass, ib as attr_ib
+from ujson import loads as ujson_loads
 
 __all__ = [
     "AutomationConfig",
@@ -278,7 +278,7 @@ def build_automation_config(
         ),
         screenshot_api_url=env("SCREENSHOT_API_URL"),
         screenshot_target_uri=env("SCREENSHOT_TARGET_URI"),
-        screenshot_format=env("SCREENSHOT_FORMAT", default='png'),
+        screenshot_format=env("SCREENSHOT_FORMAT", default="png"),
         cdp_port=env("CDP_PORT", default="9222"),
         req_browser_path=env("REQ_BROWSER_PATH", default="/request_browser/"),
         init_browser_pathq=env("INIT_BROWSER_PATH", default="/init_browser?reqid="),
@@ -298,12 +298,12 @@ def build_automation_config(
             "NO_OUT_LINKS_EXPRESS", default="window.$WBNOOUTLINKS = true;"
         ),
     )
-    user_conf = dict()
+    user_conf = {}
     if options is not None:
         user_conf.update(options)
     user_conf.update(kwargs)
     if len(user_conf):
-        additional_configuration = dict()
+        additional_configuration = {}
         for override_key, override_value in user_conf.items():
             if override_key in conf:
                 conf[override_key] = override_value
@@ -318,6 +318,12 @@ def build_automation_config(
 
 
 def to_redis_key(aid: str) -> str:
+    """Converter used to turn the supplied automation id into
+    the correct automation prefix for redis
+
+    :param aid: The id of the automation
+    :return: The automation's redis key prefix
+    """
     return f"a:{aid}"
 
 
@@ -360,6 +366,11 @@ class CloseReason(Enum):
 
 
 def exit_code_from_reason(reason: CloseReason) -> int:
+    """Returns the appropriate exit code for the supplied close reason
+
+    :param reason: The close reason
+    :return: The exit code
+    """
     if reason in (CloseReason.TARGET_CRASHED, CloseReason.CONNECTION_CLOSED):
         return 2
     return 0

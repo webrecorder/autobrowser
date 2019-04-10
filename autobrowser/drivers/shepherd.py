@@ -1,9 +1,9 @@
 from abc import ABC
 from asyncio import AbstractEventLoop, CancelledError, Task, sleep as aio_sleep
 from typing import Any, Dict, List, Optional, Union
-from ujson import loads as ujson_loads
 
 from aioredis import Channel
+from ujson import loads as ujson_loads
 
 from autobrowser.automation import AutomationConfig, BrowserExitInfo
 from autobrowser.chrome_browser import Chrome
@@ -46,6 +46,13 @@ class ShepherdDriver(BaseDriver, ABC):
     async def stage_new_browser(
         self, browser_id: str, data: Optional[Any] = None
     ) -> str:
+        """Stages a new browser from shepherd returning an request id
+        to be used when communicating with shepherd about the newly staged browser
+
+        :param browser_id: The id of the browser to be staged
+        :param data: Optional data to be sent with the stage request
+        :return: The request id for the newly staged browser
+        """
         async with self.session.post(
             self.conf.request_new_browser_url(browser_id), data=data
         ) as response:
@@ -58,8 +65,14 @@ class ShepherdDriver(BaseDriver, ABC):
     async def init_new_browser(
         self, browser_id: str, data: Optional[Any] = None
     ) -> Optional[Dict[str, Union[str, List[Dict[str, str]]]]]:
+        """Initializes the a new browser identified by the supplied browser id
+
+        :param browser_id: The id of the new browser
+        :param data: Optional data to be sent with the initialization request
+        :return: An dictionary containing the information about the newly initialized browser
+        """
         reqid = await self.stage_new_browser(browser_id, data)
-        headers = dict(Host="localhost")
+        headers = {"Host": "localhost"}
         eloop = self.loop
         logged_method = f"init_new_browser<browser_id={browser_id}, data={data}>"
 
@@ -82,9 +95,17 @@ class ShepherdDriver(BaseDriver, ABC):
                 self_logger_info(logged_method, f"Waiting for Browser: {data}")
                 await aio_sleep(WAIT_TIME, loop=eloop)
         tab_datas = await self.wait_for_tabs(data.get("ip"), self.conf.num_tabs)
-        return dict(ip=data.get("ip"), reqid=reqid, tab_datas=tab_datas)
+        return {"ip": data.get("ip"), "reqid": reqid, "tab_datas": tab_datas}
 
     async def wait_for_tabs(self, ip: str, num_tabs: int = 0) -> List[Dict[str, str]]:
+        """Waits for tabs in a remote browser, signified by the supplied ip address, to become available.
+        If the `num_tabs` keyword argument is supplied with a number greater than zero, that
+        many additional tabs will be created in the remote browser
+
+        :param ip: The ip address of the remote browser
+        :param num_tabs: How many additional tabs are to be created in the remote browser
+        :return: A list of dictionaries containing information about the remote browser tabs
+        """
         self_find_browser_tabs = self.find_browser_tabs
         self_logger_info = self.logger.info
 
@@ -113,6 +134,15 @@ class ShepherdDriver(BaseDriver, ABC):
         url: Optional[str] = None,
         require_ws: Optional[bool] = True,
     ) -> List[Dict[str, str]]:
+        """Retrieves a list of tabs from a remote browser, signified by the supplied ip address,
+        filtering the retrieved list of tabs by requiring a tab to have a ws url and or its page URL
+        is not equal to the supplied url.
+
+        :param ip: The ip address of the remote browser
+        :param url: Optional URL used to exclude tab(s)
+        :param require_ws: Should the list of tabs returned only include tabs with a ws url. Defaults to true
+        :return: A list of dictionaries containing information about tabs in the remote browser
+        """
         filtered_tabs: List[Dict[str, str]] = []
         logged_method = f"find_browser_tabs<ip={ip}, url={url}>"
 
@@ -161,10 +191,16 @@ class ShepherdDriver(BaseDriver, ABC):
         return None
 
     async def create_browser_tab(self, ip: str) -> Dict[str, str]:
+        """Creates a new browser tab in a remote browser signified by the supplied ip address.
+
+        :param ip: The ip of the remote browser
+        :return: A dictionary containing information about the newly created tab
+        """
         async with self.session.get(self.conf.cdp_json_new_url(ip)) as res:
             return await res.json(loads=ujson_loads)
 
     async def clean_up(self) -> None:
+        """Closes the pubsub channel and calls the clean_up method the super class"""
         self.logger.info("clean_up", "closing redis connection")
         if self.pubsub_task and not self.pubsub_task.done():
             self.pubsub_task.cancel()
@@ -202,34 +238,49 @@ class SingleBrowserDriver(ShepherdDriver):
         )
         self.browser.on(Chrome.Events.Exiting, self.on_browser_exit)
         await self.browser.init(tab_datas)
+        self.pubsub_channel = await self.get_auto_event_channel()
         self.pubsub_task = self.loop.create_task(self.pubsub_loop())
 
     async def get_auto_event_channel(self) -> Channel:
+        """Returns a pubsub channel for the automation `wr.auto-event:{requid}`
+
+        :return: The automation's pubsub channel
+        """
         channels = await self.redis.subscribe(
             "wr.auto-event:{reqid}".format(reqid=self.conf.reqid)
         )
         return channels[0]
 
     async def pubsub_loop(self) -> None:
+        """Waits for messages delivered via the automation's pubsub channel and
+        handles them accordingly.
+
+        Messages:
+          - start: all tabs start running behaviors
+          - stop: all tabs if they have an running behavior are paused
+          - shutdown: stops the running automation
+        """
         logged_method = "pubsub_loop"
-        self.pubsub_channel = await self.get_auto_event_channel()
         self.logger.debug(logged_method, "started")
 
-        while await self.pubsub_channel.wait_message():
+        while 1:
+            have_message = await self.pubsub_channel.wait_message()
+            if not have_message:
+                break
             msg = await self.pubsub_channel.get(encoding="utf-8", decoder=ujson_loads)
             self.logger.debug(logged_method, f"got message {msg}")
 
             if msg["cmd"] == "stop":
-                for tab in self.browser.tabs.values():
-                    await tab.pause_behaviors()
+                await self._pause_behaviors()
 
             elif msg["cmd"] == "start":
-                for tab in self.browser.tabs.values():
-                    await tab.resume_behaviors()
+                await self._resume_running_behaviors()
 
             elif msg["cmd"] == "shutdown":
                 self.shutdown_condition.initiate_shutdown()
+
             self.logger.debug(logged_method, "waiting for another message")
+
         self.logger.debug(logged_method, "stopped")
 
     async def shutdown(self) -> int:
@@ -248,6 +299,16 @@ class SingleBrowserDriver(ShepherdDriver):
         self.browser = None
         self.shutdown_condition.initiate_shutdown()
 
+    async def _pause_behaviors(self) -> None:
+        """Calls the pause_behaviors method of all tabs the browser is managing"""
+        for tab in self.browser.tabs.values():
+            await tab.pause_behaviors()
+
+    async def _resume_running_behaviors(self) -> None:
+        """Calls the resume_behaviors method of all tabs the browser is managing"""
+        for tab in self.browser.tabs.values():
+            await tab.resume_behaviors()
+
     def __str__(self) -> str:
         return f"SingleBrowserDriver(browser={self.browser}, conf={self.conf})"
 
@@ -259,23 +320,47 @@ class MultiBrowserDriver(ShepherdDriver):
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
         super().__init__(conf, loop)
-        self.browsers: Dict[str, Chrome] = dict()
+        self.browsers: Dict[str, Chrome] = {}
 
     async def get_auto_event_channel(self) -> Channel:
-        channels = await self.redis.subscribe("auto-event")
+        """Returns a pubsub channel for the automation `wr.auto-event:{requid}`
+
+        :return: The automation's pubsub channel
+        """
+        channels = await self.redis.subscribe(
+            "wr.auto-event:{reqid}".format(reqid=self.conf.reqid)
+        )
         return channels[0]
 
     async def pubsub_loop(self) -> None:
+        """Waits for messages delivered via the automation's pubsub channel and
+        handles them accordingly.
+
+        Messages:
+          - start: adds a the browser signified by the message's requid to the managed browsers
+          - stop: removes a the browser signified by the message's requid to the managed browsers
+        """
         logged_method = "pubsub_loop"
-        while await self.pubsub_channel.wait_message():
+
+        while 1:
+            have_message = await self.pubsub_channel.wait_message()
+            if not have_message:
+                break
             msg = await self.pubsub_channel.get(encoding="utf-8", decoder=ujson_loads)
             self.logger.debug(logged_method, f"got message {msg}")
             if msg["cmd"] == "start":
                 await self.add_browser(msg["reqid"])
             elif msg["cmd"] == "stop":
                 await self.remove_browser(msg["reqid"])
+            self.logger.debug(logged_method, "waiting for another message")
+
+        self.logger.debug(logged_method, "stopped")
 
     async def add_browser(self, reqid: str) -> None:
+        """Adds a browser, signified by the supplied request id, to the managed browser dictionary
+
+        :param reqid: The request id of the browser to be added
+        """
         self.logger.debug(f"add_browser(reqid={reqid})", "Start Automating Browser")
         browser = self.browsers.get(reqid)
         tab_datas = None
@@ -305,6 +390,10 @@ class MultiBrowserDriver(ShepherdDriver):
             browser.on(Chrome.Events.Exiting, self.on_browser_exit)
 
     async def remove_browser(self, reqid: str) -> None:
+        """Removes a browser, signified by the supplied request id, from the managed browser dictionary
+
+        :param reqid: The request id of the browser to be removed
+        """
         self.logger.debug(f"remove_browser(reqid={reqid})", "Stop Automating Browser")
         browser = self.browsers.pop(reqid, None)
         if browser is None:

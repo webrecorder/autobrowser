@@ -1,10 +1,11 @@
 """A modified asyncio.runners.run that ensures the process exits with a specific exit code"""
 import asyncio
 import logging
-import uvloop
 import sys
-from asyncio import coroutines, events, tasks
+from asyncio import AbstractEventLoop, coroutines, events, tasks
 from typing import Coroutine
+
+import uvloop
 
 __all__ = ["run_automation"]
 
@@ -19,7 +20,15 @@ def run_automation(main: Coroutine, *, debug: bool = False) -> None:
     sys.exit(_run(main, debug=debug))
 
 
-def _run(main: Coroutine, *, debug: bool = False):
+def _run(main: Coroutine, *, debug: bool = False) -> int:
+    """Performs the logic of running an automation's main coroutine and ensuring
+    the exit code it returns is used as the processes exit code, as well as, properly
+    shutting down the event loop
+
+    :param main: An automation's main coroutine
+    :param debug: Should the event loop be run in debug mode
+    :return: The exit code returned by the automation's main coroutine
+    """
     if events._get_running_loop() is not None:
         raise RuntimeError(
             "run_automation() cannot be called from a running event loop"
@@ -55,7 +64,11 @@ def _run(main: Coroutine, *, debug: bool = False):
             loop.close()
 
 
-def _cancel_all_tasks(loop):
+def _cancel_all_tasks(loop: AbstractEventLoop) -> None:
+    """Cancels all tasks the supplied event loop is running
+
+    :param loop: The event loop to use
+    """
     to_cancel = tasks.all_tasks(loop)
     if not to_cancel:
         return

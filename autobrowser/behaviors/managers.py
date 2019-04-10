@@ -1,13 +1,13 @@
 from asyncio import AbstractEventLoop
 from typing import Any, Dict, TYPE_CHECKING
-from ujson import loads as ujson_loads
 
 from aiohttp import ClientSession
 from attr import dataclass as attr_dataclass, ib as attr_ib
+from ujson import loads as ujson_loads
 
 from autobrowser.abcs import BehaviorManager
-from autobrowser.util import AutoLogger, Helper, create_autologger
 from autobrowser.automation import AutomationConfig
+from autobrowser.util import AutoLogger, Helper, create_autologger
 from .runners import WRBehaviorRunner
 
 if TYPE_CHECKING:

@@ -45,6 +45,7 @@ class BehaviorTab(BaseTab):
         await super().close()
 
     async def _ensure_behavior_run_task_end(self) -> None:
+        """If there is a behavior currently running, it is stopped"""
         if self._behavior_run_task is not None and not self._behavior_run_task.done():
             logged_method = "_ensure_behavior_run_task_end"
             self.logger.info(logged_method, "we have an existing behavior stopping it")
@@ -61,6 +62,7 @@ class BehaviorTab(BaseTab):
             self._behavior_run_task = None
 
     async def _run_behavior_for_current_url(self) -> None:
+        """Retrieves the behavior for the current page and starts it"""
         behavior = await self.behavior_manager.behavior_for_url(
             self._curr_behavior_url,
             self,

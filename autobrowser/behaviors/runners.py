@@ -147,6 +147,10 @@ class WRBehaviorRunner(Behavior):
             self.tab.unset_running_behavior(self)
 
     async def timed_run(self, max_run_time: Union[int, float]) -> None:
+        """Runs the behavior until the maximum run time has been reached
+
+        :param max_run_time: The maximum amount of time the behavior is allowed to run
+        """
         try:
             async with aio_timeout(max_run_time, loop=self.loop):
                 await self.run()

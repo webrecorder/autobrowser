@@ -1,7 +1,7 @@
 from asyncio import Task, gather as aio_gather
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Awaitable, List, Optional, Set, Dict
+from typing import Any, Awaitable, Dict, List, Optional
 
 from aiofiles import open as aiofiles_open
 from simplechrome.errors import NavigationError
@@ -14,9 +14,6 @@ from autobrowser.util import Helper
 from .basetab import BaseTab
 
 __all__ = ["CrawlerTab"]
-
-
-PageMimeTypes: Set[str] = {"text/html"}
 
 
 class NavigationResult(Enum):
@@ -61,6 +58,7 @@ class CrawlerTab(BaseTab):
         #: The maximum amount of time the crawler should run behaviors for
         self._max_behavior_time: int = config.max_behavior_time
         self._navigation_timeout: int = config.navigation_timeout
+        self._exit_crawl_loop: bool = False
 
     @classmethod
     def create(cls, *args, **kwargs) -> "CrawlerTab":
@@ -68,19 +66,34 @@ class CrawlerTab(BaseTab):
 
     @property
     def main_frame(self) -> Frame:
+        """Returns a reference to the current main frame (top) of the tab
+
+        :return: The main frame of the tab
+        """
         return self.frames.mainFrame
 
     def main_frame_getter(self) -> Frame:
+        """Helper function for behaviors that returns the current main frame
+        of the tab
+
+        :return: The main frame of the tab
+        """
         return self.frames.mainFrame
 
     def wait_for_net_idle(
         self, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
     ) -> Awaitable[None]:
+        """Returns a future that  resolves once network idle occurs.
+
+        See the options of autobrowser.util.netidle.monitor for a complete
+        description of the available arguments
+        """
         return self.network.network_idle_promise(
             num_inflight=num_inflight, idle_time=idle_time, global_wait=global_wait
         )
 
     async def collect_outlinks(self) -> None:
+        """Retrieves the outlinks collected by the running behaviors and adds them to the frontier"""
         logged_method = "collect_outlinks"
         out_links = None
         try:
@@ -110,6 +123,21 @@ class CrawlerTab(BaseTab):
             )
 
     async def crawl(self) -> None:
+        """Starts the crawl loop.
+
+        For each URL in the frontier:
+          - navigate to the page
+          - perform the next crawler action based on the navigation results
+
+        The crawl loop is exited once the frontier becomes exhausted or one of the following conditions are met:
+           - shutdown, graceful or otherwise, is initiated
+           - the connection to the tab is closed
+           - navigation to a page fails for unknown reasons
+           - the frontier becomes exhausted
+
+        If the crawl loop exits and the exit was not due to graceful shutdown
+        the close method is called.
+        """
         logged_method = "crawl"
         frontier_exhausted = await self.frontier.exhausted()
         self.logger.info(
@@ -117,49 +145,39 @@ class CrawlerTab(BaseTab):
             f"crawl loop starting and the frontier is {'exhausted' if frontier_exhausted else 'not exhausted'}",
         )
 
-        # loop until frontier is exhausted
+        should_exit_crawl_loop = self._should_exit_crawl_loop
+        next_crawl_url = self.frontier.next_url
+        navigate_to_page = self.goto
+        is_frontier_exhausted = self.frontier.exhausted
+        log_info = self.logger.info
+        handle_navigation_result = self._handle_navigation_result
+        one_tick_sleep = Helper.one_tick_sleep
+
+        # loop until frontier is exhausted or we should exit crawl loop
         while 1:
-            if frontier_exhausted or self._should_exit_crawl_loop():
-                self.logger.info(
+            if frontier_exhausted or should_exit_crawl_loop():
+                log_info(
                     logged_method, "exiting crawl loop before crawling the next url"
                 )
                 break
 
-            n_url = await self.frontier.next_url()
-            self.logger.info(logged_method, f"navigating to {n_url}")
+            next_url = await next_crawl_url()
 
-            navigation_result = await self.goto(n_url)
+            log_info(logged_method, f"navigating to {next_url}")
 
-            if navigation_result == NavigationResult.EXIT_CRAWL_LOOP:
-                self.logger.critical(
-                    logged_method, "exiting crawl loop due to fatal navigation error"
-                )
-                break
+            navigation_result = await navigate_to_page(next_url)
 
-            if navigation_result != NavigationResult.SKIP_URL:
-                self.logger.info(
-                    logged_method,
-                    f"navigated to the next url with no error <url={n_url}>",
-                )
+            await handle_navigation_result(next_url, navigation_result)
 
-                # maybe run a behavior
-                await self.run_behavior()
-                await self.frontier.remove_current_from_pending()
-            else:
-                self.logger.info(
-                    logged_method,
-                    f"the URL navigated to is being skipped <url={n_url}>",
-                )
-
-            if self._should_exit_crawl_loop():
-                self.logger.info(
+            if should_exit_crawl_loop():
+                log_info(
                     logged_method, "exiting crawl loop after crawling the current url"
                 )
                 break
             # we sleep for one event loop tick in order to ensure that other
             # coroutines can do their thing if they are waiting. e.g. shutdowns etc
-            await Helper.one_tick_sleep()
-            frontier_exhausted = await self.frontier.exhausted()
+            await one_tick_sleep()
+            frontier_exhausted = await is_frontier_exhausted()
 
         self.logger.info(logged_method, "crawl is finished")
         if not self._graceful_shutdown:
@@ -201,13 +219,14 @@ class CrawlerTab(BaseTab):
     async def goto(
         self, url: str, wait: str = "load", *args: Any, **kwargs: Any
     ) -> NavigationResult:
-        """Navigate the browser to the supplied URL.
+        """Navigate the browser to the supplied URL. The return value
+        of this function indicates the next action to be performed by the crawler
 
         :param url: The URL of the page to navigate to
         :param wait: The wait condition that all the pages frame have
         before navigation is considered complete
         :param kwargs: Any additional arguments for use in navigating
-        :return: True if navigation happened ok or False to indicate all stop
+        :return: An NavigationResult indicating the next action of the crawler
         """
         self._url = url
         logged_method = f"goto(url={url}, wait={wait})"
@@ -240,8 +259,7 @@ class CrawlerTab(BaseTab):
             return NavigationResult.EXIT_CRAWL_LOOP
 
     async def init(self) -> None:
-        """Initialize the crawler tab, if the crawler tab is already
-        running this is a no op."""
+        """Initialize the crawler tab, if the crawler tab is already running this is a no op."""
         if self._running:
             return
         self.logger.info("init", "initializing")
@@ -276,11 +294,18 @@ class CrawlerTab(BaseTab):
         await Helper.one_tick_sleep()
 
     async def run_behavior(self) -> None:
-        # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
-        # after any redirects happen
+        """Retrieves the behavior for the page the crawler is currently at and runs it.
+
+        If this method is called and the crawler is to exit the crawl loop this method becomes a no op.
+
+        If the crawler is configured to run behaviors until a configured maximum time, the time_run
+        method of autobrowser.behaviors.runners.WRBehaviorRunner is used otherwise run.
+        """
         if self._should_exit_crawl_loop():
             return
         logged_method = "run_behavior"
+        # use self.frame_manager.mainFrame.url because it is the fully resolved URL that the browser displays
+        # after any redirects happen
         self._url = self.main_frame.url
         behavior = await self.behavior_manager.behavior_for_url(
             self.main_frame.url,
@@ -309,19 +334,27 @@ class CrawlerTab(BaseTab):
                 )
 
     async def manual_collect_outlinks(self) -> None:
+        """Manually collects outlinks (a[href], area[href]) from the page and all sub frames"""
         self.logger.info("manual_collect_outlinks", "collecting")
         await self.client.DOM.enable()
-        out_links: List[str] = list()
-        nodes = await self.client.DOM.getFlattenedDocument(depth=-1, pierce=True)
+
+        out_links: List[str] = []
         promises = []
+        add_out_link = out_links.append
+        add_extraction_promise = promises.append
+        extract_href_from_remote_node = self._extract_href_from_remote_node
+
+        nodes = await self.client.DOM.getFlattenedDocument(depth=-1, pierce=True)
         for node in nodes["nodes"]:
             node_name = node["localName"]
             if node_name == "a" or node_name == "area":
-                promises.append(self._extract_href_from_remote_node(node))
+                add_extraction_promise(extract_href_from_remote_node(node))
+
         results = await aio_gather(*promises, loop=self.loop, return_exceptions=True)
         for result in results:
             if isinstance(result, str) and result:
-                out_links.append(result)
+                add_out_link(result)
+
         await self.client.DOM.disable()
         await self.frontier.add_all(out_links)
 
@@ -336,11 +369,20 @@ class CrawlerTab(BaseTab):
         return href
 
     def _crawl_loop_running(self) -> bool:
+        """Returns T/F indicating if the crawl loop is running (task not done)
+
+        :return: T/F indicating if crawl loop is running
+        """
         return self.crawl_loop is not None and not self.crawl_loop.done()
 
     def _determine_navigation_result(
         self, navigation_response: Optional[Response]
     ) -> NavigationResult:
+        """Returns the NavigationResult based on the supplied navigation response
+
+        :param navigation_response: The navigation response if one was sent
+        :return: The NavigationResult based on the navigation response
+        """
         logged_method = "_determine_navigation_result"
         if navigation_response is None:
             self.logger.info(
@@ -348,7 +390,7 @@ class CrawlerTab(BaseTab):
                 f"we navigated somewhere but must skip the URL due to not having a navigation response",
             )
             return NavigationResult.SKIP_URL
-        if navigation_response.mimeType in PageMimeTypes:
+        if "html" in navigation_response.mimeType.lower():
             if navigation_response.ok:
                 return NavigationResult.OK
             self.logger.info(
@@ -362,5 +404,50 @@ class CrawlerTab(BaseTab):
         )
         return NavigationResult.SKIP_URL
 
+    async def _handle_navigation_result(
+        self, url: str, navigation_result: NavigationResult
+    ) -> None:
+        """Performs the next crawler action based on the supplied navigation results.
+
+        Actions:
+           - `EXIT_CRAWL_LOOP`: log and set the `_exit_crawl_loop` to True
+           - `SKIP_URL`: log
+           - `OK`: log and run the page's behavior
+
+        The currently crawled URL is always updated in redis no matter what
+        the navigation result is.
+
+        :param url: The URL of the page navigated to
+        :param navigation_result: The results of the navigation
+        """
+        logged_method = "_handle_navigation_result"
+
+        if navigation_result == NavigationResult.EXIT_CRAWL_LOOP:
+            self.logger.critical(
+                logged_method, "exiting crawl loop due to fatal navigation error"
+            )
+            self._exit_crawl_loop = True
+        elif navigation_result == NavigationResult.SKIP_URL:
+            self.logger.info(
+                logged_method, f"the URL navigated to is being skipped <url={url}>"
+            )
+        else:
+            self.logger.info(
+                logged_method, f"navigated to the next URL with no error <url={url}>"
+            )
+
+            # maybe run a behavior
+            await self.run_behavior()
+
+        await self.frontier.remove_current_from_pending()
+
     def _should_exit_crawl_loop(self) -> bool:
-        return self._graceful_shutdown or self.connection_closed
+        """Returns T/F indicating if the crawl loop should be exited based on if
+        graceful shutdown was initiated, or the connection to the tab was closed,
+        if the exit crawl loop property is set to true
+
+        :return: T/F indicating if the crawl loop should be exited
+        """
+        return (
+            self._graceful_shutdown or self.connection_closed or self._exit_crawl_loop
+        )
