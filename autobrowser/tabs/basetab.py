@@ -357,7 +357,7 @@ class BaseTab(Tab, ABC):
                     config.screenshot_api_url,
                     params={
                         "reqid": config.reqid,
-                        "target_uri": config.screenshot_target_uri,
+                        "target_uri": config.screenshot_target_uri.format(url=self._url),
                         "content_type": content_type,
                     },
                     data=BytesIO(screen_shot),

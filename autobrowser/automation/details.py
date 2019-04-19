@@ -277,7 +277,7 @@ def build_automation_config(
             "FETCH_BEHAVIOR_INFO_ENDPOINT", default=f"{behavior_api_url}/info?url="
         ),
         screenshot_api_url=env("SCREENSHOT_API_URL"),
-        screenshot_target_uri=env("SCREENSHOT_TARGET_URI"),
+        screenshot_target_uri=env("SCREENSHOT_TARGET_URI", default="urn:screenshot:{url}"),
         screenshot_format=env("SCREENSHOT_FORMAT", default="png"),
         cdp_port=env("CDP_PORT", default="9222"),
         req_browser_path=env("REQ_BROWSER_PATH", default="/request_browser/"),
