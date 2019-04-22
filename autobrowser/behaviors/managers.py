@@ -1,9 +1,8 @@
 from asyncio import AbstractEventLoop
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from aiohttp import ClientSession
-from attr import dataclass as attr_dataclass, ib as attr_ib
-from ujson import loads as ujson_loads
+from ujson import loads
 
 from autobrowser.abcs import BehaviorManager
 from autobrowser.automation import AutomationConfig
@@ -16,24 +15,40 @@ if TYPE_CHECKING:
 __all__ = ["RemoteBehaviorManager"]
 
 
-@attr_dataclass(slots=True)
 class RemoteBehaviorManager(BehaviorManager):
     """Manages matching URL to their corresponding behaviors by requesting
     the behavior from a remote endpoint
     """
 
-    conf: AutomationConfig = attr_ib()
-    session: ClientSession = attr_ib(repr=False)
-    loop: AbstractEventLoop = attr_ib(default=None, repr=False)
-    logger: AutoLogger = attr_ib(init=False, default=None, repr=False)
+    __slots__ = ["__weakref__", "conf", "logger", "loop", "session"]
+
+    def __init__(
+        self,
+        conf: AutomationConfig,
+        session: ClientSession,
+        loop: Optional[AbstractEventLoop] = None,
+    ) -> None:
+        """Initialize the new instance of RemoteBehaviorManager
+
+        :param conf: The automation's config
+        :param session: The HTTP session to use for making the behavior requests
+        :param loop: The event loop for the automation
+        """
+        self.conf: AutomationConfig = conf
+        self.session: ClientSession = session
+        self.loop: AbstractEventLoop = Helper.ensure_loop(loop)
+        self.logger: AutoLogger = create_autologger(
+            "remoteBehaviorManager", "RemoteBehaviorManager"
+        )
 
     async def behavior_for_url(self, url: str, tab: "Tab", **kwargs: Any) -> "Behavior":
-        self.logger.info("behavior_for_url", f"fetching behavior for {url}")
+        self.logger.info("behavior_for_url", f"fetching behavior - {url}")
         async with self.session.get(self.conf.retrieve_behavior_url(url)) as res:
-            res.raise_for_status()
             self.logger.info(
-                "behavior_for_url", f"fetched behavior for {url}: status = {res.status}"
+                "behavior_for_url",
+                f"fetched behavior - {{'url': '{url}', 'status': {res.status}}}",
             )
+            res.raise_for_status()
             behavior_js = await res.text()
             behavior = WRBehaviorRunner(
                 behavior_js=behavior_js,
@@ -47,17 +62,17 @@ class RemoteBehaviorManager(BehaviorManager):
     async def behavior_info_for_url(self, url: str) -> Dict[str, Any]:
         self.logger.info("behavior_info_for_url", f"fetching behavior info for {url}")
         async with self.session.get(self.conf.behavior_info_url(url)) as res:
-            res.raise_for_status()
             self.logger.info(
                 "behavior_info_for_url",
-                f"fetched behavior info for {url}: status = {res.status}",
+                f"fetched behavior info - {{'url': '{url}', 'status': {res.status}}}",
             )
-            info: Dict[str, Any] = await res.json(loads=ujson_loads)
+            res.raise_for_status()
+            info: Dict[str, Any] = await res.json(loads=loads)
             return info
 
-    def __attrs_post_init__(self) -> None:
-        if self.loop is None:
-            self.loop = Helper.event_loop()
-        self.logger = create_autologger(
-            "remoteBehaviorManager", "RemoteBehaviorManager"
-        )
+    def __str__(self) -> str:
+        info = f"behavior={self.conf.fetch_behavior_endpoint}, info={self.conf.fetch_behavior_info_endpoint}"
+        return f"RemoteBehaviorManager({info})"
+
+    def __repr__(self) -> str:
+        return self.__str__()

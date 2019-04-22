@@ -1,9 +1,9 @@
 from typing import Dict, List, Union
 
 from aioredis import Redis
-from attr import dataclass as attr_dataclass, ib as attr_ib
-from ujson import loads as ujson_loads
+from ujson import loads
 from urlcanon import MatchRule
+from urlcanon.canon import remove_fragment, whatwg
 
 from autobrowser.automation import RedisKeys
 from autobrowser.util import AutoLogger, create_autologger
@@ -11,13 +11,40 @@ from autobrowser.util import AutoLogger, create_autologger
 __all__ = ["RedisScope"]
 
 
-@attr_dataclass(slots=True)
+def strip_frag(url: str) -> str:
+    """Removed the fragment from the supplied URL if it exists
+
+    :param url: The URL to have the fragment removed
+    :return: The fragmentless URL
+    """
+    cannond = whatwg.canonicalize(url)
+    remove_fragment(cannond)
+    return str(cannond)
+
+
 class RedisScope:
-    redis: Redis = attr_ib(repr=False)
-    keys: RedisKeys = attr_ib()
-    rules: List[MatchRule] = attr_ib(init=False, factory=list)
-    all_links: bool = attr_ib(init=False, default=False)
-    logger: AutoLogger = attr_ib(init=False, default=None)
+    __slots__ = [
+        "__weakref__",
+        "_current_page",
+        "all_links",
+        "keys",
+        "logger",
+        "redis",
+        "rules",
+    ]
+
+    def __init__(self, redis: Redis, keys: RedisKeys) -> None:
+        """Initialize the new instance of RedisScope
+
+        :param redis: The redis instance to be used
+        :param keys: The redis keys class containing the keys for the automation
+        """
+        self.redis: Redis = redis
+        self.keys: RedisKeys = keys
+        self.rules: List[MatchRule] = []
+        self.all_links: bool = False
+        self.logger: AutoLogger = create_autologger("scope", "RedisScope")
+        self._current_page: str = ""
 
     async def init(self) -> None:
         """Initialize the scope class.
@@ -59,7 +86,7 @@ class RedisScope:
         :return:
         """
         if isinstance(scope_rule, str):
-            the_rule = MatchRule(**ujson_loads(scope_rule))
+            the_rule = MatchRule(**loads(scope_rule))
         elif isinstance(scope_rule, dict):
             the_rule = MatchRule(**scope_rule)
         else:
@@ -67,5 +94,31 @@ class RedisScope:
         self.logger.info("add_scope_rule", f"adding rule={the_rule}")
         self.rules.append(the_rule)
 
-    def __attrs_post_init__(self) -> None:
-        self.logger = create_autologger("scope", "RedisScope")
+    def is_inner_page_link(self, url: str) -> bool:
+        """Returns T/F indicating if the supplied outlink URL
+        is a inner page link.
+
+        :param url: The outlink URL to be tested
+        :return: T/F indicating if the supplied outlink URL
+        is a inner page link.
+        """
+        canonicalized = whatwg.canonicalize(url)
+        hash_frag = (canonicalized.hash_sign + canonicalized.fragment).decode("utf-8")
+        if not hash_frag:
+            return False
+        remove_fragment(canonicalized)
+        return str(canonicalized) == self._current_page
+
+    def crawling_new_page(self, current_page: str) -> None:
+        """Informs this instance of RedisScope that the crawler
+        is crawling a new page
+
+        :param current_page: The URL to the page being crawled
+        """
+        self._current_page = strip_frag(current_page)
+
+    def __str__(self) -> str:
+        return f"RedisScope(current_page={self._current_page}, all_links={self.all_links}, rules={len(self.rules)})"
+
+    def __repr__(self) -> str:
+        return self.__str__()

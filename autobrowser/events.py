@@ -1,17 +1,10 @@
-import attr
+from typing import ClassVar
 
-__all__ = ["BrowserEvents", "TabEvents"]
-
-
-@attr.dataclass(slots=True, frozen=True)
-class BrowserEvents:
-    """The events emitted by browser instances"""
-
-    Exiting: str = attr.ib(default="Browser:Exit")
+__all__ = ["Events"]
 
 
-@attr.dataclass(slots=True, frozen=True)
-class TabEvents:
-    """The events emitted by tab instances"""
+class Events:
+    """A simple class for holding the events that are emitted by instances of Browsers or Tabs"""
 
-    Closed: str = attr.ib(default="Tab:Closed")
+    BrowserExiting: ClassVar[str] = "Browser:Exiting"
+    TabClosed: ClassVar[str] = "Tab:Closed"

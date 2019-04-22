@@ -2,11 +2,12 @@ import logging
 import socket
 from collections import Counter
 from enum import Enum, auto
+from operator import itemgetter
 from os import environ
 from typing import Any, Counter as CounterT, Dict, List, Optional, Type, Union
 
-from attr import dataclass as attr_dataclass, ib as attr_ib
-from ujson import loads as ujson_loads
+import attr
+import ujson
 
 __all__ = [
     "AutomationConfig",
@@ -77,10 +78,10 @@ def env(
                 f"Invalid environment variable '{key}' (expected a float): '{val}'"
             )
     elif type_ == dict:
-        return ujson_loads(val)
+        return ujson.loads(val)
 
 
-@attr_dataclass(slots=True)
+@attr.dataclass(slots=True)
 class AutomationConfig:
     """The AutomationConfig class is the single source of truth for details
     concerning the running automation.
@@ -88,48 +89,51 @@ class AutomationConfig:
     """
 
     # configuration details concerning running an automation
-    autoid: Optional[str] = attr_ib(default=None)
-    reqid: Optional[str] = attr_ib(default=None)
-    browser_id: str = attr_ib(default=None)
-    num_tabs: int = attr_ib(default=None)
-    tab_type: str = attr_ib(default=None)
-    max_behavior_time: Union[int, float] = attr_ib(default=60)
-    navigation_timeout: Union[int, float] = attr_ib(default=30)
-    wait_for_q: Optional[Union[int, float]] = attr_ib(default=60)
-    net_cache_disabled: bool = attr_ib(default=True)
+    autoid: Optional[str] = attr.ib(default=None)
+    reqid: Optional[str] = attr.ib(default=None)
+    browser_id: str = attr.ib(default=None)
+    num_tabs: int = attr.ib(default=None)
+    tab_type: str = attr.ib(default=None)
+    max_behavior_time: Union[int, float] = attr.ib(default=60)
+    navigation_timeout: Union[int, float] = attr.ib(default=30)
+    wait_for_q: Optional[Union[int, float]] = attr.ib(default=-1)
+    wait_for_q_poll_rate: Optional[Union[int, float]] = attr.ib(default=-1)
+    net_cache_disabled: bool = attr.ib(default=True)
 
     # configuration details concerning redis
-    redis_url: str = attr_ib(default=None)
+    redis_url: str = attr.ib(default=None)
 
     # configuration details concerning behaviors
-    behavior_api_url: str = attr_ib(default=None)
-    fetch_behavior_endpoint: str = attr_ib(default=None)
-    fetch_behavior_info_endpoint: str = attr_ib(default=None)
-    behavior_action_expression: str = attr_ib(default=None)
-    behavior_paused_expression: str = attr_ib(default=None)
-    page_url_expression: str = attr_ib(default=None)
-    outlinks_expression: str = attr_ib(default=None)
-    clear_outlinks_expression: str = attr_ib(default=None)
-    no_out_links_express: str = attr_ib(default=None)
+    behavior_api_url: str = attr.ib(default=None)
+    fetch_behavior_endpoint: str = attr.ib(default=None)
+    fetch_behavior_info_endpoint: str = attr.ib(default=None)
+    behavior_action_expression: str = attr.ib(default=None)
+    behavior_paused_expression: str = attr.ib(default=None)
+    pause_behavior_expression: str = attr.ib(default=None)
+    unpause_behavior_expression: str = attr.ib(default=None)
+    page_url_expression: str = attr.ib(default=None)
+    outlinks_expression: str = attr.ib(default=None)
+    clear_outlinks_expression: str = attr.ib(default=None)
+    no_out_links_express: str = attr.ib(default=None)
 
     # configuration details concerning shepherd
-    shepherd_host: str = attr_ib(default=None)
-    browser_host: str = attr_ib(default=None)
-    browser_host_ip: str = attr_ib(default=None)
-    req_browser_path: str = attr_ib(default=None)
-    init_browser_pathq: str = attr_ib(default=None)
-    browser_info_path: str = attr_ib(default=None)
-    cdp_port: str = attr_ib(default=None)
+    shepherd_host: str = attr.ib(default=None)
+    browser_host: str = attr.ib(default=None)
+    browser_host_ip: str = attr.ib(default=None)
+    req_browser_path: str = attr.ib(default=None)
+    init_browser_pathq: str = attr.ib(default=None)
+    browser_info_path: str = attr.ib(default=None)
+    cdp_port: str = attr.ib(default=None)
 
     # configuration details concerning where to send screenshots
     # to if we are taking them
-    screenshot_api_url: Optional[str] = attr_ib(default=None)
-    screenshot_target_uri: Optional[str] = attr_ib(default=None)
-    screenshot_format: Optional[str] = attr_ib(default=None)
+    screenshot_api_url: Optional[str] = attr.ib(default=None)
+    screenshot_target_uri: Optional[str] = attr.ib(default=None)
+    screenshot_format: Optional[str] = attr.ib(default=None)
 
     # other configuration details
-    chrome_opts: Optional[Dict] = attr_ib(default=None, repr=False)
-    additional_configuration: Optional[Dict] = attr_ib(default=None)
+    chrome_opts: Optional[Dict] = attr.ib(default=None, repr=False)
+    additional_configuration: Optional[Dict] = attr.ib(default=None)
 
     @property
     def should_take_screenshot(self) -> bool:
@@ -267,7 +271,8 @@ def build_automation_config(
         chrome_opts=env("CHROME_OPTS", type_=dict),
         max_behavior_time=env("BEHAVIOR_RUN_TIME", type_=float, default=60),
         navigation_timeout=env("NAV_TO", type_=float, default=30),
-        wait_for_q=env("WAIT_FOR_Q", type_=float, default=60),
+        wait_for_q=env("WAIT_FOR_Q", type_=int, default=-1),
+        wait_for_q_poll_rate=env("WAIT_FOR_Q_POLL_RATE", type_=int, default=5),
         net_cache_disabled=env("CRAWL_NO_NETCACHE", type_=bool, default=True),
         behavior_api_url=behavior_api_url,
         fetch_behavior_endpoint=env(
@@ -277,7 +282,9 @@ def build_automation_config(
             "FETCH_BEHAVIOR_INFO_ENDPOINT", default=f"{behavior_api_url}/info?url="
         ),
         screenshot_api_url=env("SCREENSHOT_API_URL"),
-        screenshot_target_uri=env("SCREENSHOT_TARGET_URI", default="urn:screenshot:{url}"),
+        screenshot_target_uri=env(
+            "SCREENSHOT_TARGET_URI", default="urn:screenshot:{url}"
+        ),
         screenshot_format=env("SCREENSHOT_FORMAT", default="png"),
         cdp_port=env("CDP_PORT", default="9222"),
         req_browser_path=env("REQ_BROWSER_PATH", default="/request_browser/"),
@@ -288,6 +295,12 @@ def build_automation_config(
         ),
         behavior_paused_expression=env(
             "BEHAVIOR_PAUSED_EXPRESSION", default="window.$WBBehaviorPaused === true"
+        ),
+        pause_behavior_expression=env(
+            "PAUSE_BEHAVIOR_EXPRESSION", default="window.$WBBehaviorPaused = true"
+        ),
+        unpause_behavior_expression=env(
+            "PAUSE_BEHAVIOR_EXPRESSION", default="window.$WBBehaviorPaused = false"
         ),
         page_url_expression=env("PAGE_URL_EXPRESSION", default="window.location.href"),
         outlinks_expression=env("OUTLINKS_EXPRESSION", default="window.$wbOutlinks$"),
@@ -327,25 +340,34 @@ def to_redis_key(aid: str) -> str:
     return f"a:{aid}"
 
 
-@attr_dataclass(slots=True)
-class RedisKeys(object):
+class RedisKeys:
     """Utility class that has the redis keys used by an automation as properties"""
 
-    autoid: str = attr_ib(converter=to_redis_key)
-    info: str = attr_ib(init=False, default=None)
-    queue: str = attr_ib(init=False, default=None)
-    pending: str = attr_ib(init=False, default=None)
-    seen: str = attr_ib(init=False, default=None)
-    scope: str = attr_ib(init=False, default=None)
-    auto_done: str = attr_ib(init=False, default=None)
+    __slots__ = [
+        "__weakref__",
+        "auto_done",
+        "autoid",
+        "inner_page_links",
+        "info",
+        "pending",
+        "queue",
+        "scope",
+        "seen",
+    ]
 
-    def __attrs_post_init__(self) -> None:
-        self.info = f"{self.autoid}:info"
-        self.queue = f"{self.autoid}:q"
-        self.pending = f"{self.autoid}:qp"
-        self.seen = f"{self.autoid}:seen"
-        self.scope = f"{self.autoid}:scope"
-        self.auto_done = f"{self.autoid}:br:done"
+    def __init__(self, config: AutomationConfig) -> None:
+        """Initialize the new RedisKeys instance
+
+        :param config: The automation config
+        """
+        self.autoid: str = f"a:{config.autoid}"
+        self.info: str = f"{self.autoid}:info"
+        self.queue: str = f"{self.autoid}:q"
+        self.pending: str = f"{self.autoid}:qp"
+        self.seen: str = f"{self.autoid}:seen"
+        self.scope: str = f"{self.autoid}:scope"
+        self.auto_done: str = f"{self.autoid}:br:done"
+        self.inner_page_links: str = f"{self.autoid}:{config.reqid}:ipls"
 
 
 class CloseReason(Enum):
@@ -376,20 +398,20 @@ def exit_code_from_reason(reason: CloseReason) -> int:
     return 0
 
 
-@attr_dataclass(slots=True)
-class TabClosedInfo(object):
+@attr.dataclass(slots=True)
+class TabClosedInfo:
     """Simple data class containing the information about why a tab closed"""
 
-    tab_id: str = attr_ib()
-    reason: CloseReason = attr_ib()
+    tab_id: str = attr.ib()
+    reason: CloseReason = attr.ib()
 
 
-@attr_dataclass(slots=True)
-class BrowserExitInfo(object):
+@attr.dataclass(slots=True)
+class BrowserExitInfo:
     """Simple data class containing the information about why a browser is exiting"""
 
-    auto_info: AutomationConfig = attr_ib()
-    tab_closed_reasons: List[TabClosedInfo] = attr_ib()
+    auto_info: AutomationConfig = attr.ib()
+    tab_closed_reasons: List[TabClosedInfo] = attr.ib()
 
     def exit_reason_code(self) -> int:
         tcr_len = len(self.tab_closed_reasons)
@@ -400,7 +422,5 @@ class BrowserExitInfo(object):
         tcr_counter: CounterT[CloseReason] = Counter()
         for tcr in self.tab_closed_reasons:
             tcr_counter[tcr.reason] += 1
-        exit_reason, count = max(
-            tcr_counter.items(), key=lambda reason_count: reason_count[1]
-        )
+        exit_reason, count = max(tcr_counter.items(), key=itemgetter(1))
         return exit_code_from_reason(exit_reason)

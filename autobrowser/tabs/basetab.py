@@ -1,18 +1,19 @@
 """Abstract base classes that implements the base functionality of a tab as defined by autobrowser.abcs.Tab"""
 from abc import ABC
-from asyncio import AbstractEventLoop, Task, gather as aio_gather, sleep as aio_sleep
+from asyncio import AbstractEventLoop, CancelledError, Task, gather, sleep
 from base64 import b64decode
 from io import BytesIO
-from math import ceil as math_ceil
 from typing import Any, Awaitable, Dict, Optional
 
 from aiohttp import ClientResponseError, ClientSession
 from aioredis import Redis
 from cripy import Client, connect
+from math import ceil
 from simplechrome.network_idle_monitor import NetworkIdleMonitor
 
 from autobrowser.abcs import Behavior, BehaviorManager, Browser, Tab
 from autobrowser.automation import AutomationConfig, CloseReason, TabClosedInfo
+from autobrowser.events import Events
 from autobrowser.util import AutoLogger, Helper, create_autologger
 
 __all__ = ["BaseTab"]
@@ -40,12 +41,12 @@ class BaseTab(Tab, ABC):
         self.logger: AutoLogger = create_autologger("tabs", self.__class__.__name__)
         self._url: str = self.tab_data["url"]
         self._id: str = self.tab_data["id"]
-        self._curr_behavior_url: str = ""
         self._behaviors_paused: bool = False
         self._connection_closed: bool = False
         self._running: bool = False
         self._reconnecting: bool = False
         self._graceful_shutdown: bool = False
+        self._default_handling_of_dialogs: bool = True
         self._behavior_run_task: Optional[Task] = None
         self._reconnect_promise: Optional[Task] = None
         self._running_behavior: Optional[Behavior] = None
@@ -186,7 +187,7 @@ class BaseTab(Tab, ABC):
             except Exception as e:
                 print(e)
 
-            await aio_sleep(3.0, loop=loop)
+            await sleep(3.0, loop=loop)
         self._reconnecting = False
         if self._reconnect_promise and not self._reconnect_promise.done():
             self._reconnect_promise.cancel()
@@ -200,7 +201,7 @@ class BaseTab(Tab, ABC):
         :return: The results of the evaluation if any
         """
         logged_method = "evaluate_in_page"
-        self.logger.info(logged_method, "evaluating js in page")
+        self.logger.debug(logged_method, "evaluating js in page")
         try:
             results = await self.client.Runtime.evaluate(
                 js_string,
@@ -211,11 +212,12 @@ class BaseTab(Tab, ABC):
                 returnByValue=True,
             )
         except Exception as e:
-            self.logger.exception(
-                logged_method,
-                "evaluating js in page failed due to an python error",
-                exc_info=e,
-            )
+            if not isinstance(e, CancelledError):
+                self.logger.exception(
+                    logged_method,
+                    "evaluating js in page failed due to an python error",
+                    exc_info=e,
+                )
             return {"done": True}
         js_exception = results.get("exceptionDetails")
         if js_exception:
@@ -248,24 +250,26 @@ class BaseTab(Tab, ABC):
         if self._running:
             return
         logged_method = "connect_to_tab"
-        self.logger.info(logged_method, f"connecting to the browser {self.tab_data}")
+        self.logger.debug(logged_method, f"connecting to the browser {self.tab_data}")
         self.client = await connect(
             self.tab_data["webSocketDebuggerUrl"], remote=True, loop=self.loop
         )
 
-        self.logger.info(logged_method, "connected to browser")
+        self.logger.debug(logged_method, "connected to browser")
 
         self.client.on(Client.Events.Disconnected, self._on_connection_closed)
         self.client.Inspector.detached(self.devtools_reconnect)
         self.client.Inspector.targetCrashed(self._on_inspector_crashed)
 
-        await aio_gather(
+        await gather(
             self.client.Page.enable(),
             self.client.Network.enable(),
             self.client.Runtime.enable(),
             loop=self.loop,
         )
         self.logger.info(logged_method, "enabled domains")
+        if self._default_handling_of_dialogs:
+            self.client.Page.javascriptDialogOpening(self.__handle_page_dialog)
 
     async def init(self) -> None:
         """Initialize the client connection to the tab.
@@ -274,7 +278,7 @@ class BaseTab(Tab, ABC):
         implementation. This can be the only call in their
         implementation.
         """
-        self.logger.info("init", f"running = {self.running}")
+        self.logger.debug("init", f"running = {self.running}")
         if self._running:
             return
         await self.connect_to_tab()
@@ -300,7 +304,7 @@ class BaseTab(Tab, ABC):
             self.client.remove_all_listeners()
             await self.client.dispose()
             self.client = None
-        self.emit(BaseTab.Events.Closed, TabClosedInfo(self.tab_id, self._close_reason))
+        self.emit(Events.TabClosed, TabClosedInfo(self.tab_id, self._close_reason))
 
     async def shutdown_gracefully(self) -> None:
         """Initiates the graceful shutdown of the tab"""
@@ -317,19 +321,21 @@ class BaseTab(Tab, ABC):
         """
         logged_method = "capture_screenshot"
         self.logger.info(logged_method, "capturing screenshot of page")
+        # get page metrics so we can resize, virtually, to the full page contents
         metrics = await self.client.Page.getLayoutMetrics()
         content_size = metrics["contentSize"]
-        width = math_ceil(content_size["width"])
-        height = math_ceil(content_size["height"])
+        width = ceil(content_size["width"])
+        height = ceil(content_size["height"])
+        # do the virtual resize, take the screenshot, and  then reset
         await self.client.Emulation.setDeviceMetricsOverride(
             mobile=False,
             width=width,
             height=height,
             deviceScaleFactor=1,
-            screenOrientation={'angle': 0, 'type': "portraitPrimary"},
+            screenOrientation={"angle": 0, "type": "portraitPrimary"},
         )
         result = await self.client.Page.captureScreenshot(
-            clip={'x': 0, 'y': 0, 'width': width, 'height': height, 'scale': 1},
+            clip={"x": 0, "y": 0, "width": width, "height": height, "scale": 1},
             format="png",
         )
         await self.client.Emulation.clearDeviceMetricsOverride()
@@ -357,7 +363,9 @@ class BaseTab(Tab, ABC):
                     config.screenshot_api_url,
                     params={
                         "reqid": config.reqid,
-                        "target_uri": config.screenshot_target_uri.format(url=self._url),
+                        "target_uri": config.screenshot_target_uri.format(
+                            url=self._url
+                        ),
                         "content_type": content_type,
                     },
                     data=BytesIO(screen_shot),
@@ -380,6 +388,26 @@ class BaseTab(Tab, ABC):
                     "sent the captured screenshot to the configured endpoint",
                 )
 
+    async def navigation_reset(self) -> None:
+        logged_method = "navigation_reset"
+        self.logger.debug(logged_method, "Resetting tab to about:blank")
+        try:
+            await self.goto("about:blank")
+        except Exception as e:
+            self.logger.exception(
+                logged_method, "Resetting to about:blank failed at end", exc_info=e
+            )
+        else:
+            self.logger.debug(logged_method, "Tab reset to about:blank")
+
+    async def __handle_page_dialog(self, event: Dict) -> None:
+        _type = event.get("type")
+        if _type == "alert":
+            accept = True
+        else:
+            accept = False
+        await self.client.Page.handleJavaScriptDialog(accept=accept)
+
     async def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         """Listener function for when the target has crashed.
 
@@ -388,8 +416,7 @@ class BaseTab(Tab, ABC):
         """
         if self._running:
             self.logger.critical(
-                "_on_inspector_crashed",
-                f"target crashed while running <url={self._url}>",
+                "_on_inspector_crashed", f"target crashed while running - {self._url}"
             )
             self._close_reason = CloseReason.TARGET_CRASHED
             await self.close()
@@ -404,7 +431,7 @@ class BaseTab(Tab, ABC):
             self._connection_closed = True
             self.logger.critical(
                 "_on_connection_closed",
-                f"connection closed while running <url={self._url}>",
+                f"connection closed while running - {self._url}",
             )
             self._close_reason = CloseReason.CONNECTION_CLOSED
             await self.close()

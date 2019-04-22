@@ -68,8 +68,12 @@ NAV_TO
  - Defaults to `30`
 
 WAIT_FOR_Q 
- - How long should the crawler tab wait for the frontier q to become populated (number)
- - Defaults to `60`
+ - How long should the crawler tab wait for the frontier q to become populated (time value in seconds)
+ - Defaults to `-1` (forever)
+ 
+WAIT_FOR_Q_POLL_RATE
+ - How long is the check interval (time value in seconds)
+ - Defaults to `5` 
 
 BEHAVIOR_RUN_TIME 
  - How long should the behaviors be allowed to run for (time value in seconds)

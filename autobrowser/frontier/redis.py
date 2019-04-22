@@ -1,11 +1,11 @@
-from asyncio import AbstractEventLoop, sleep as aio_sleep
+from asyncio import AbstractEventLoop, CancelledError, TimeoutError, sleep
 from typing import Any, Awaitable, Dict, Iterable, Optional, Union
 
 from aioredis import Redis
-from attr import dataclass as attr_dataclass, ib as attr_ib
-from ujson import dumps as ujson_dumps, loads as ujson_loads
+from async_timeout import timeout
+from ujson import dumps, loads
 
-from autobrowser.automation import RedisKeys
+from autobrowser.automation import AutomationConfig, RedisKeys
 from autobrowser.scope import RedisScope
 from autobrowser.util import AutoLogger, Helper, create_autologger
 
@@ -14,40 +14,58 @@ __all__ = ["RedisFrontier"]
 CRAWL_DEPTH_FIELD: str = "crawl_depth"
 
 
-@attr_dataclass(slots=True)
 class RedisFrontier:
-    redis: Redis = attr_ib(repr=False)
-    keys: RedisKeys = attr_ib()
-    loop: AbstractEventLoop = attr_ib(
-        default=None, converter=Helper.ensure_loop, repr=False
-    )
-    scope: RedisScope = attr_ib(init=False, default=None)
-    crawl_depth: int = attr_ib(init=False, default=-1)
-    currently_crawling: Optional[Dict[str, Union[str, int]]] = attr_ib(
-        init=False, default=None
-    )
-    logger: AutoLogger = attr_ib(default=None, init=False, repr=False)
+    __slots__ = [
+        "__weakref__",
+        "_did_wait",
+        "config",
+        "crawl_depth",
+        "currently_crawling",
+        "keys",
+        "logger",
+        "loop",
+        "redis",
+        "scope",
+    ]
 
-    async def wait_for_populated_q(self, wait_time: Union[int, float] = 60) -> None:
-        """Waits for the q to become populated by polling exhausted at wait_time intervals.
+    def __init__(
+        self,
+        redis: Redis,
+        config: AutomationConfig,
+        loop: Optional[AbstractEventLoop] = None,
+    ):
+        """Initialize the new instance of RedisFrontier
 
-        :param wait_time: The interval time in seconds for polling exhausted. Defaults to 60
+        :param redis: The redis instance to be used
+        :param config: The automation config
+        :param loop: The event loop used by the automation
         """
-        logged_method = f"wait_for_populated_q(wait_time={wait_time})"
-        self.logger.info(logged_method, "starting wait loop")
+        self.config: AutomationConfig = config
+        self.crawl_depth: int = -1
+        self.currently_crawling: Optional[Dict[str, Union[str, int]]] = None
+        self.keys: RedisKeys = RedisKeys(self.config)
+        self.logger: AutoLogger = create_autologger("frontier", "RedisFrontier")
+        self.loop: AbstractEventLoop = Helper.ensure_loop(loop)
+        self.redis: Redis = redis
+        self.scope: RedisScope = RedisScope(self.redis, self.keys)
+        self._did_wait: bool = False
 
-        frontier_exhausted = await self.exhausted()
-        eloop = self.loop
-        is_frontier_exhausted = self.exhausted
-        self_logger_info = self.logger.info
+    @property
+    def did_wait(self) -> bool:
+        """Returns T/F indicating if the frontier has waited for the q to become
+        populated already.
 
-        while frontier_exhausted:
-            self_logger_info(logged_method, "q still not populated waiting")
-            await aio_sleep(wait_time, loop=eloop)
-            frontier_exhausted = await is_frontier_exhausted()
+        :return: T/F indicating if the q population wait has been performed
+        """
+        return self._did_wait
 
-        q_len = await self.q_len()
-        self.logger.info(logged_method, f"q populated with {q_len} URLs")
+    def crawling_new_page(self, page_url: str) -> None:
+        """Indicate to both the frontier and scope instances for the crawl
+        that we are now crawling a new page.
+
+        This is used for tracking inner page links
+        """
+        self.scope.crawling_new_page(page_url)
 
     def next_depth(self) -> int:
         """Returns the next depth by adding one to the depth of the currently crawled URLs depth
@@ -57,6 +75,71 @@ class RedisFrontier:
         if self.currently_crawling is not None:
             return self.currently_crawling["depth"] + 1
         return -1
+
+    def add_to_pending(self, url: str) -> Awaitable[Any]:
+        """Add the supplied URL to the pending set
+
+        :param url: The URL to add to the pending set
+        """
+        self.logger.debug("add_to_pending", f"Adding {url} to the pending set")
+        return self.redis.sadd(self.keys.pending, url)
+
+    def remove_from_pending(self, url: str) -> Awaitable[Any]:
+        """Remove the supplied URL from the pending set
+
+        :param url: The URL to be removed from the pending set
+        """
+        return self.redis.srem(self.keys.pending, url)
+
+    def pop_inner_page_link(self) -> Awaitable[Optional[str]]:
+        """Removes and returns an inner page links from the redis set"""
+        return self.redis.spop(self.keys.inner_page_links)
+
+    async def have_inner_page_links(self) -> bool:
+        """Returns T/F indicating if we have inner page links
+
+        :return: T/F indicating if we have inner page links
+        """
+        num_ipls = await self.redis.scard(self.keys.inner_page_links)
+        return num_ipls > 0
+
+    async def remove_inner_page_links(self) -> None:
+        """Removes the inner page links set from redis"""
+        await self.redis.delete(self.keys.inner_page_links)
+
+    async def wait_for_populated_q(
+        self, max_time: Union[int, float] = 60, poll_rate: Union[int, float] = 5
+    ) -> bool:
+        """Waits for the q to become populated by polling exhausted at poll_rate intervals until the
+        frontier becomes populated or max_time is reached
+
+        :param max_time: The maximum amount of time to wait for the frontier to become populated.
+        Defaults to 60
+        :param poll_rate: The interval time in seconds for polling exhausted. Defaults to 5
+        :return: T/F indicating if the frontier is still exhausted or not
+        """
+        logged_method = "wait_for_populated_q"
+        self.logger.info(
+            logged_method,
+            f"starting wait loop [max_time={max_time}, poll_rate={poll_rate}]",
+        )
+        try:
+            if max_time != -1:
+                async with timeout(max_time):
+                    await self._wait_for_populated_q(logged_method, poll_rate)
+            else:
+                # we wait for ever when max_time is -1
+                await self._wait_for_populated_q(logged_method, poll_rate)
+        except (CancelledError, TimeoutError):
+            self.logger.info(logged_method, f"timed out")
+        except Exception as e:
+            self.logger.exception(logged_method, f"waiting for ", exc_info=e)
+            raise
+        q_len = await self.q_len()
+        self.logger.info(
+            logged_method, f"done waiting we have a q populated with {q_len} URLs"
+        )
+        return q_len == 0
 
     async def q_len(self) -> int:
         """Returns an Awaitable that resolves to the length of the frontier's q
@@ -71,7 +154,7 @@ class RedisFrontier:
         :return: T/F indicating if the frontier is exhausted
         """
         qlen = await self.redis.llen(self.keys.queue)
-        self.logger.info("exhausted", f"len(queue) = {qlen}")
+        self.logger.debug("exhausted", f"len(queue) = {qlen}")
         return qlen == 0
 
     async def is_seen(self, url: str) -> bool:
@@ -82,44 +165,20 @@ class RedisFrontier:
         """
         return await self.redis.sismember(self.keys.seen, url) == 1
 
-    def add_to_pending(self, url: str) -> Awaitable[Any]:
-        """Add the supplied URL to the pending set
-
-        :param url: The URL to add to the pending set
-        """
-        self.logger.info("add_to_pending", f"Adding {url} to the pending set")
-        return self.redis.sadd(self.keys.pending, url)
-
-    def remove_from_pending(self, url: str) -> Awaitable[Any]:
-        """Remove the supplied URL from the pending set
-
-        :param url: The URL to be removed from the pending set
-        """
-        return self.redis.srem(self.keys.pending, url)
-
-    async def _pop_url(self) -> Dict[str, Union[str, int]]:
-        """Pops (removes) the next URL to be crawled from
-        the queue and returns it
-
-        :return: The next URL to be crawled
-        """
-        udict_str = await self.redis.lpop(self.keys.queue)
-        return ujson_loads(udict_str)
-
     async def next_url(self) -> str:
         """Retrieve the next URL to be crawled from the frontier and updates the pending set
 
         :return: The next URL to be crawled
         """
         self.currently_crawling = await self._pop_url()
-        self.logger.info("next_url", f"the next URL is {self.currently_crawling}")
+        self.logger.debug("next_url", f"the next URL is {self.currently_crawling}")
         await self.add_to_pending(self.currently_crawling["url"])
         return self.currently_crawling["url"]
 
     async def remove_current_from_pending(self) -> None:
         """If currently_crawling url is set, remove it from pending set"""
         if self.currently_crawling is not None:
-            self.logger.info(
+            self.logger.debug(
                 "next_url",
                 f"removing the previous URL {self.currently_crawling} from the pending set",
             )
@@ -127,18 +186,30 @@ class RedisFrontier:
             await self.remove_from_pending(curl)
             self.currently_crawling = None
 
-    async def init(self) -> None:
-        """Initialize the frontier"""
+    async def init(self) -> bool:
+        """Initialize the frontier. Returns T/F indicating
+        if the frontier is currently exhausted
+
+        """
         self.crawl_depth = int(
             await self.redis.hget(self.keys.info, CRAWL_DEPTH_FIELD) or 0
         )
         self.logger.info("init", f"crawl depth = {self.crawl_depth}")
         await self.scope.init()
+        if self.config.wait_for_q is not None:
+            return await self.wait_for_populated_q(
+                self.config.wait_for_q, self.config.wait_for_q_poll_rate
+            )
+        return await self.exhausted()
 
     async def add(self, url: str, depth: int) -> bool:
         """Conditionally adds a URL to frontier.
 
-        The addition condition is not seen and in scope.
+        The addition condition is not seen, in scope, and not an
+        inner page link.
+
+        If the supplied URL is an inner page link it is added
+        to the inner page links set.
 
         :param url: The URL to maybe add to the frontier
         :param depth: The depth the URL is to be crawled at
@@ -155,6 +226,14 @@ class RedisFrontier:
             )
             return False
 
+        if self.scope.is_inner_page_link(url):
+            await self.redis.sadd(self.keys.inner_page_links, url)
+            self.logger.info(
+                logged_method,
+                f"Not adding URL to the frontier, inner page link - {url_info}",
+            )
+            return False
+
         was_added = await self.redis.sadd(self.keys.seen, url)
         if was_added == 0:
             self.logger.info(
@@ -163,7 +242,7 @@ class RedisFrontier:
             return False
 
         self.logger.info(logged_method, f"Adding URL to the frontier - {url_info}")
-        await self.redis.rpush(self.keys.queue, ujson_dumps(url_info))
+        await self.redis.rpush(self.keys.queue, dumps(url_info))
         return True
 
     async def add_all(self, urls: Iterable[str]) -> bool:
@@ -184,7 +263,7 @@ class RedisFrontier:
             )
             return False
 
-        self.logger.info(
+        self.logger.debug(
             logged_method,
             f"The next depth is {next_depth}. Max depth = {self.crawl_depth}",
         )
@@ -198,12 +277,42 @@ class RedisFrontier:
                 num_added += 1
 
         if num_added > 0:
-            self.logger.info(logged_method, f"Added {num_added} urls to the frontier")
+            self.logger.debug(logged_method, f"Added {num_added} urls to the frontier")
             return True
 
-        self.logger.info(logged_method, f"No URLs added to the frontier")
+        self.logger.debug(logged_method, f"No URLs added to the frontier")
         return False
 
-    def __attrs_post_init__(self) -> None:
-        self.scope = RedisScope(self.redis, self.keys)
-        self.logger = create_autologger("frontier", "RedisFrontier")
+    async def _pop_url(self) -> Dict[str, Union[str, int]]:
+        """Pops (removes) the next URL to be crawled from
+        the queue and returns it
+
+        :return: The next URL to be crawled
+        """
+        udict_str = await self.redis.lpop(self.keys.queue)
+        return loads(udict_str)
+
+    async def _wait_for_populated_q(
+        self, logged_method: str, poll_rate: Union[int, float] = 5
+    ):
+        """Performs the polling of the frontiers Q to check for when
+        it becomes populated
+
+        :param logged_method: The method name that should be used rather than this one
+        :param poll_rate: The amount of time between checks
+        """
+        frontier_exhausted = await self.exhausted()
+        eloop = self.loop
+        is_frontier_exhausted = self.exhausted
+        self_logger_info = self.logger.info
+
+        while frontier_exhausted:
+            self_logger_info(logged_method, "q still not populated waiting")
+            await sleep(poll_rate, loop=eloop)
+            frontier_exhausted = await is_frontier_exhausted()
+
+    def __str__(self) -> str:
+        return f"RedisFrontier()"
+
+    def __repr__(self) -> str:
+        return self.__str__()

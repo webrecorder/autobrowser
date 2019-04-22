@@ -1,13 +1,14 @@
 from abc import ABC
-from asyncio import AbstractEventLoop, CancelledError, Task, sleep as aio_sleep
+from asyncio import AbstractEventLoop, CancelledError, Task, sleep
 from typing import Any, Dict, List, Optional, Union
 
+from ujson import loads
 from aioredis import Channel
-from ujson import loads as ujson_loads
 
 from autobrowser.automation import AutomationConfig, BrowserExitInfo
 from autobrowser.chrome_browser import Chrome
 from autobrowser.errors import BrowserStagingError
+from autobrowser.events import Events
 from .basedriver import BaseDriver
 
 __all__ = [
@@ -56,7 +57,7 @@ class ShepherdDriver(BaseDriver, ABC):
         async with self.session.post(
             self.conf.request_new_browser_url(browser_id), data=data
         ) as response:
-            json = await response.json(loads=ujson_loads)  # type: Dict[str, str]
+            json = await response.json(loads=loads)  # type: Dict[str, str]
         reqid = json.get("reqid")
         if reqid is None:
             raise BrowserStagingError(f"Could not stage browser with id = {browser_id}")
@@ -93,7 +94,7 @@ class ShepherdDriver(BaseDriver, ABC):
                 if "cmd_port" in data:
                     break
                 self_logger_info(logged_method, f"Waiting for Browser: {data}")
-                await aio_sleep(WAIT_TIME, loop=eloop)
+                await sleep(WAIT_TIME, loop=eloop)
         tab_datas = await self.wait_for_tabs(data.get("ip"), self.conf.num_tabs)
         return {"ip": data.get("ip"), "reqid": reqid, "tab_datas": tab_datas}
 
@@ -106,24 +107,24 @@ class ShepherdDriver(BaseDriver, ABC):
         :param num_tabs: How many additional tabs are to be created in the remote browser
         :return: A list of dictionaries containing information about the remote browser tabs
         """
-        self_find_browser_tabs = self.find_browser_tabs
-        self_logger_info = self.logger.info
+        find_browser_tabs = self.find_browser_tabs
+        log = self.logger.info
 
         eloop = self.loop
         log_method = f"wait_for_tabs(ip={ip}, num_tabs={num_tabs})"
 
         while 1:
-            tab_datas = await self_find_browser_tabs(ip=ip)
+            tab_datas = await find_browser_tabs(ip=ip)
             if tab_datas:
                 break
-            self_logger_info(log_method, "Waiting for first tab")
-            await aio_sleep(WAIT_TIME, loop=eloop)
+            log(log_method, "Waiting for first tab")
+            await sleep(WAIT_TIME, loop=eloop)
 
         if num_tabs > 0:
-            self_create_browser_tab = self.create_browser_tab
+            create_browser_tab = self.create_browser_tab
             tab_datas_append = tab_datas.append
             for _ in range(num_tabs - 1):
-                tab_data = await self_create_browser_tab(ip)
+                tab_data = await create_browser_tab(ip)
                 tab_datas_append(tab_data)
 
         return tab_datas
@@ -148,7 +149,7 @@ class ShepherdDriver(BaseDriver, ABC):
 
         try:
             async with self.session.get(self.conf.cdp_json_url(ip)) as res:
-                tabs = await res.json(loads=ujson_loads)
+                tabs = await res.json(loads=loads)
         except Exception as e:
             self.logger.exception(
                 logged_method,
@@ -184,7 +185,7 @@ class ShepherdDriver(BaseDriver, ABC):
         )
         try:
             async with self.session.get(url) as res:
-                json = await res.json(loads=ujson_loads)  # type: Dict[str, str]
+                json = await res.json(loads=loads)  # type: Dict[str, str]
                 return json.get("ip")
         except Exception as e:
             self.logger.exception(logged_method, "", exc_info=e)
@@ -197,7 +198,7 @@ class ShepherdDriver(BaseDriver, ABC):
         :return: A dictionary containing information about the newly created tab
         """
         async with self.session.get(self.conf.cdp_json_new_url(ip)) as res:
-            return await res.json(loads=ujson_loads)
+            return await res.json(loads=loads)
 
     async def clean_up(self) -> None:
         """Closes the pubsub channel and calls the clean_up method the super class"""
@@ -236,7 +237,7 @@ class SingleBrowserDriver(ShepherdDriver):
             redis=self.redis,
             loop=self.loop,
         )
-        self.browser.on(Chrome.Events.Exiting, self.on_browser_exit)
+        self.browser.on(Events.BrowserExiting, self.on_browser_exit)
         await self.browser.init(tab_datas)
         self.pubsub_channel = await self.get_auto_event_channel()
         self.pubsub_task = self.loop.create_task(self.pubsub_loop())
@@ -267,7 +268,7 @@ class SingleBrowserDriver(ShepherdDriver):
             have_message = await self.pubsub_channel.wait_message()
             if not have_message:
                 break
-            msg = await self.pubsub_channel.get(encoding="utf-8", decoder=ujson_loads)
+            msg = await self.pubsub_channel.get(encoding="utf-8", decoder=loads)
             self.logger.debug(logged_method, f"got message {msg}")
 
             if msg["cmd"] == "stop":
@@ -346,7 +347,7 @@ class MultiBrowserDriver(ShepherdDriver):
             have_message = await self.pubsub_channel.wait_message()
             if not have_message:
                 break
-            msg = await self.pubsub_channel.get(encoding="utf-8", decoder=ujson_loads)
+            msg = await self.pubsub_channel.get(encoding="utf-8", decoder=loads)
             self.logger.debug(logged_method, f"got message {msg}")
             if msg["cmd"] == "start":
                 await self.add_browser(msg["reqid"])
@@ -387,7 +388,7 @@ class MultiBrowserDriver(ShepherdDriver):
 
             await browser.init(tab_datas)
             self.browsers[reqid] = browser
-            browser.on(Chrome.Events.Exiting, self.on_browser_exit)
+            browser.on(Events.BrowserExiting, self.on_browser_exit)
 
     async def remove_browser(self, reqid: str) -> None:
         """Removes a browser, signified by the supplied request id, from the managed browser dictionary

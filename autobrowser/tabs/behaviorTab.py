@@ -21,27 +21,32 @@ class BehaviorTab(BaseTab):
         )
         self.logger.info(
             logged_method,
-            f"<url={url}, paused_flag_exists={behavior_paused_flag}, behavior_not_running={behavior_not_running}>",
+            Helper.logged_json_string(
+                url=url,
+                paused_flag_exists=behavior_paused_flag,
+                behavior_not_running=behavior_not_running,
+            ),
         )
-        url_change = url != self._curr_behavior_url and not behavior_paused_flag
+        url_change = url != self._url and not behavior_paused_flag
         # if no behavior running, restart behavior for current page
         if behavior_not_running or url_change:
             await self._ensure_behavior_run_task_end()
-            self._curr_behavior_url = url
-            self.logger.info(logged_method, "restarting behavior")
+            self._url = url
+            self.logger.debug(logged_method, "restarting behavior")
             await self._run_behavior_for_current_url()
-        self.logger.info(logged_method, f"behavior resumed")
+        self.logger.debug(logged_method, f"behavior resumed")
 
     async def init(self) -> None:
         if self._running:
             return
         await super().init()
-        self._curr_behavior_url = self.tab_data.get("url")
+        self._url = self.tab_data.get("url")
         await Helper.one_tick_sleep()
 
     async def close(self) -> None:
-        self.logger.info("close", "closing")
+        self.logger.debug("close", "closing")
         await self._ensure_behavior_run_task_end()
+        await self.navigation_reset()
         await super().close()
 
     async def _ensure_behavior_run_task_end(self) -> None:
@@ -64,13 +69,10 @@ class BehaviorTab(BaseTab):
     async def _run_behavior_for_current_url(self) -> None:
         """Retrieves the behavior for the current page and starts it"""
         behavior = await self.behavior_manager.behavior_for_url(
-            self._curr_behavior_url,
-            self,
-            take_screen_shot=self.config.should_take_screenshot,
+            self._url, self, take_screen_shot=self.config.should_take_screenshot
         )
         self.logger.info(
-            "_run_behavior_for_current_url",
-            f"starting behavior {behavior} for {self._curr_behavior_url}",
+            "_run_behavior_for_current_url", f"starting behavior for {self._url}"
         )
         await self.evaluate_in_page(self.config.no_out_links_express)
         self._behavior_run_task = self.loop.create_task(behavior.run())

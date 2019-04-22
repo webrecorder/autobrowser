@@ -59,7 +59,6 @@ DEFAULT_ARGS = [
     "--use-mock-keychain",
     "--mute-audio",
     "--autoplay-policy=no-user-gesture-required",
-    "--enable-automation",
     "about:blank",
 ]
 
@@ -70,51 +69,31 @@ scope_key = f"a:{dummy_auto_id}:scope"
 seen_key = f"a:{dummy_auto_id}:seen"
 q_key = f"a:{dummy_auto_id}:q"
 
+default_seed_list = [
+    "https://nodejs.org/dist/latest-v11.x/docs/api/",
+    # "https://www.instagram.com/rhizomedotorg",
+    # "https://www.youtube.com/watch?v=MfH0oirdHLs",
+    # "https://www.facebook.com/Smithsonian/",
+    # "https://twitter.com/hashtag/iipcwac18?vertical=default&src=hash",
+    # "https://soundcloud.com/perturbator",
+    # "https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview",
+    # "https://twitter.com/webrecorder_io",
+    # "https://rhizome.org/",
+]
 
-async def reset_redis(redis: Redis):
-    await redis.delete(q_key, info_key, seen_key, scope_key)
-    await redis.hset(info_key, "crawl_depth", 1)
-    await redis.rpush(
-        q_key,
-        ujson.dumps(dict(url="https://www.instagram.com/rhizomedotorg", depth=0)),
-        ujson.dumps(dict(url="https://www.youtube.com/watch?v=MfH0oirdHLs", depth=0)),
-        ujson.dumps(dict(url="https://www.facebook.com/Smithsonian/", depth=0)),
-        ujson.dumps(
-            dict(
-                url="https://twitter.com/hashtag/iipcwac18?vertical=default&src=hash",
-                depth=0,
-            )
-        ),
-        ujson.dumps(dict(url="https://soundcloud.com/perturbator", depth=0)),
-        ujson.dumps(
-            dict(
-                url="https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview",
-                depth=0,
-            )
-        ),
-        ujson.dumps(dict(url="https://twitter.com/webrecorder_io", depth=0)),
-        # ujson.dumps(dict(url="https://rhizome.org/", depth=0)),
+
+async def reset_redis(redis: Redis, loop: AbstractEventLoop) -> None:
+    await asyncio.gather(
+        redis.delete(q_key, info_key, seen_key, scope_key),
+        redis.hset(info_key, "crawl_depth", 2),
+        loop=loop,
     )
-    await redis.sadd(seen_key, "https://www.youtube.com/watch?v=MfH0oirdHLs")
-    await redis.sadd(seen_key, "https://www.facebook.com/Smithsonian/")
-    await redis.sadd(seen_key, "https://soundcloud.com/perturbator")
-    await redis.sadd(seen_key, "https://twitter.com/webrecorder_io")
-    await redis.sadd(
-        seen_key,
-        "https://twitter.com/hashtag/iipcwac18?f=tweets&vertical=default&src=hash",
-    )
-    await redis.sadd(
-        seen_key,
-        "https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview",
-    )
-    await redis.sadd(seen_key, "https://www.instagram.com/rhizomedotorg")
-    # await redis.sadd(seen_key, "https://rhizome.org/")
-    # await redis.sadd(
-    #     scope_key,
-    #     ujson.dumps(
-    #         dict(surt=parse_url("https://twitter.com/").surt().decode("utf-8"))
-    #     ),
-    # )
+    for url in default_seed_list:
+        await asyncio.gather(
+            redis.rpush(q_key, ujson.dumps({"url": url, "depth": 0})),
+            redis.sadd(seen_key, url),
+            loop=loop,
+        )
 
 
 RESET_REDIS = True
@@ -132,24 +111,18 @@ async def crawl_baby_crawl() -> int:
         redis: Redis = await aioredis.create_redis(
             "redis://localhost", loop=loop, encoding="utf-8"
         )
-        await reset_redis(redis)
+        await reset_redis(redis, loop)
         redis.close()
         await redis.wait_closed()
     local_driver = LocalBrowserDiver(
         conf=build_automation_config(
             autoid=dummy_auto_id,
             reqid="abc321",
-            chrome_opts=dict(launch=True, exe=CHROME, args=DEFAULT_ARGS),
+            chrome_opts={"launch": True, "exe": CHROME, "args": DEFAULT_ARGS},
             tab_type="CrawlerTab",
         ),
         loop=loop,
     )
-
-    # async def it():
-    #     await asyncio.sleep(3)
-    #     local_driver.initiate_shutdown()
-    #
-    # asyncio.ensure_future(it(), loop=loop)
 
     return await local_driver.run()
 

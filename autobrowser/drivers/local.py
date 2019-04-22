@@ -1,8 +1,4 @@
-from asyncio import (
-    AbstractEventLoop,
-    TimeoutError as AIOTimeoutError,
-    create_subprocess_exec,
-)
+from asyncio import AbstractEventLoop, TimeoutError, create_subprocess_exec
 from asyncio.subprocess import DEVNULL, Process as AIOProcess
 from typing import Dict, List, Optional
 
@@ -12,6 +8,7 @@ from cripy import CDP, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_URL
 from autobrowser.automation import AutomationConfig, BrowserExitInfo
 from autobrowser.chrome_browser import Chrome
 from autobrowser.errors import DriverError
+from autobrowser.events import Events
 from autobrowser.util import Helper
 from .basedriver import BaseDriver
 
@@ -94,7 +91,7 @@ class LocalBrowserDiver(BaseDriver):
             try:
                 async with timeout(60):
                     await self.launch_browser()
-            except AIOTimeoutError:
+            except TimeoutError:
                 await self.clean_up()
                 raise DriverError("Failed To Launch The Browser Within 60 seconds")
         tabs = await self.get_tabs()
@@ -108,7 +105,7 @@ class LocalBrowserDiver(BaseDriver):
             redis=self.redis,
             loop=self.loop,
         )
-        self.browser.on(Chrome.Events.Exiting, self.on_browser_exit)
+        self.browser.on(Events.BrowserExiting, self.on_browser_exit)
         await self.browser.init(tabs)
 
     async def clean_up(self) -> None:

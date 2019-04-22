@@ -11,6 +11,7 @@ from autobrowser.abcs import Driver
 from autobrowser.automation import AutomationConfig, BrowserExitInfo, ShutdownCondition
 from autobrowser.behaviors import RemoteBehaviorManager
 from autobrowser.chrome_browser import Chrome
+from autobrowser.events import Events
 from autobrowser.util import AutoLogger, Helper, create_autologger
 
 __all__ = ["BaseDriver"]
@@ -99,7 +100,7 @@ class BaseDriver(Driver, ABC):
         browser.remove_all_listeners()
         future_exit_info = self.loop.create_future()
         browser.once(
-            Chrome.Events.Exiting, lambda info: future_exit_info.set_result(info)
+            Events.BrowserExiting, lambda info: future_exit_info.set_result(info)
         )
         await browser.shutdown_gracefully()
         self._browser_exit_infos.append(await future_exit_info)

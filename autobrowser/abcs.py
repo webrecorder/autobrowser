@@ -1,10 +1,8 @@
 from abc import ABC, abstractmethod
 from asyncio import AbstractEventLoop, Task
-from typing import Any, Awaitable, ClassVar, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, Awaitable, Dict, List, Optional, TYPE_CHECKING, Union
 
 from pyee2 import EventEmitter
-
-from .events import BrowserEvents, TabEvents
 
 if TYPE_CHECKING:
     from autobrowser.automation import AutomationConfig, BrowserExitInfo, TabClosedInfo
@@ -25,6 +23,8 @@ class Behavior(ABC):
      - init() -> pre_action_init
      - action loop -> while(not done): perform_action
     """
+
+    __slots__ = ()
 
     @property
     @abstractmethod
@@ -111,6 +111,8 @@ class Behavior(ABC):
 class BehaviorManager(ABC):
     """This class defines the expected interface for all behavior mangers"""
 
+    __slots__ = ()
+
     @abstractmethod
     async def behavior_for_url(self, url: str, tab: "Tab", **kwargs: Any) -> Behavior:
         """Retrieve the behavior for the supplied URL, if no behavior's
@@ -135,8 +137,6 @@ class BehaviorManager(ABC):
 
 class Browser(EventEmitter, ABC):
     """A Browser class represents a remote Chrome browser and N tabs"""
-
-    Events: ClassVar[BrowserEvents] = BrowserEvents()
 
     @property
     @abstractmethod
@@ -217,6 +217,8 @@ class Driver(ABC):
      - shutdown
     """
 
+    __slots__ = ()
+
     @abstractmethod
     async def init(self) -> None:
         """Initialize the driver."""
@@ -295,7 +297,14 @@ class Driver(ABC):
 class Tab(EventEmitter, ABC):
     """This class defines the expected interface for all Tab classes"""
 
-    Events: ClassVar[TabEvents] = TabEvents()
+    @classmethod
+    @abstractmethod
+    def create(cls, *args: Any, **kwargs: Any) -> "Tab":
+        """Abstract method for creating new instances of a tab.
+
+        Subclasses are expected to supply the means for creating
+        themselves their implementation
+        """
 
     @property
     @abstractmethod
@@ -450,14 +459,9 @@ class Tab(EventEmitter, ABC):
         and sends the captured screenshot to the configured endpoint
         """
 
-    @classmethod
     @abstractmethod
-    def create(cls, *args: Any, **kwargs: Any) -> "Tab":
-        """Abstract method for creating new instances of a tab.
-
-        Subclasses are expected to supply the means for creating
-        themselves their implementation
-        """
+    async def navigation_reset(self) -> None:
+        """Navigates the tab to about:blank"""
 
     async def collect_outlinks(self) -> None:
         """Collect outlinks from the remote tab somehow.

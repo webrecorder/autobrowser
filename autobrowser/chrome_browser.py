@@ -2,7 +2,7 @@ from asyncio import AbstractEventLoop
 from typing import Dict, List, Optional
 
 from aiohttp import ClientSession
-from redis import Redis
+from aioredis import Redis
 
 from autobrowser.abcs import BehaviorManager, Browser, Tab
 from autobrowser.automation import (
@@ -11,6 +11,7 @@ from autobrowser.automation import (
     CloseReason,
     TabClosedInfo,
 )
+from autobrowser.events import Events
 from autobrowser.tabs import create_tab
 from autobrowser.util import AutoLogger, Helper, create_autologger
 
@@ -82,7 +83,7 @@ class Chrome(Browser):
                 self, tab_data, redis=self.redis, session=self.session
             )
             self.tabs[tab.tab_id] = tab
-            tab.on(Tab.Events.Closed, self._tab_closed)
+            tab.on(Events.TabClosed, self._tab_closed)
         await Helper.one_tick_sleep()
 
     async def reinit(self, tab_data: Optional[List[Dict]] = None) -> None:
@@ -111,7 +112,7 @@ class Chrome(Browser):
         await self._clear_tabs(gracefully)
         self.logger.info(logged_method, "closed")
         self.emit(
-            Chrome.Events.Exiting,
+            Events.BrowserExiting,
             BrowserExitInfo(self._config, list(self.tab_closed_reasons.values())),
         )
 
@@ -137,7 +138,7 @@ class Chrome(Browser):
             return
         self.logger.info(logged_method, f"removing Tab(tab_id={tab.tab_id})")
         self.tab_closed_reasons[tab.tab_id] = info
-        tab.remove_listener(Tab.Events.Closed, self._tab_closed)
+        tab.remove_listener(Events.TabClosed, self._tab_closed)
         if len(self.tabs) == 0:
             await self.close()
 
@@ -149,17 +150,17 @@ class Chrome(Browser):
         tabs should be closed gracefully or forcefully
         """
         for tab in self.tabs.values():
-            tab.remove_listener(Tab.Events.Closed, self._tab_closed)
+            tab.remove_listener(Events.TabClosed, self._tab_closed)
             if close_gracefully:
                 await tab.shutdown_gracefully()
                 self.tab_closed_reasons[tab.tab_id] = TabClosedInfo(
                     tab.tab_id, CloseReason.GRACEFULLY
                 )
-            else:
-                await tab.close()
-                self.tab_closed_reasons[tab.tab_id] = TabClosedInfo(
-                    tab.tab_id, CloseReason.CLOSED
-                )
+                continue
+            await tab.close()
+            self.tab_closed_reasons[tab.tab_id] = TabClosedInfo(
+                tab.tab_id, CloseReason.CLOSED
+            )
         self.tabs.clear()
 
     def __str__(self) -> str:

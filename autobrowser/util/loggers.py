@@ -1,30 +1,26 @@
 # fmt: off
 from better_exceptions import hook as be_hook; be_hook()
 # fmt: on
+import logging
 from typing import Any, Optional, Union
-from logging import (
-    Logger,
-    Filter,
-    basicConfig as logging_basicConfig,
-    getLogger as logging_getLogger,
-)
-from attr import dataclass as attr_dataclass, ib as attr_ib
+
+import attr
 
 __all__ = ["AutoLogger", "RootLogger", "create_autologger"]
 
-logging_basicConfig(
-    format="%(asctime)s [%(levelname)s]: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+logging.basicConfig(
+    format="<%(asctime)s %(levelname)s> %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-RootLogger = logging_getLogger("autobrowser")
+RootLogger = logging.getLogger("autobrowser")
 
 
-@attr_dataclass(slots=True)
+@attr.dataclass(slots=True)
 class AutoLogger:
     """Logging logger wrapper that simplifies the logging format used by autobrowser"""
 
-    class_name: str = attr_ib()
-    logging_instance: Logger = attr_ib(repr=False)
+    class_name: str = attr.ib()
+    logging_instance: logging.Logger = attr.ib(repr=False)
 
     def critical(
         self,
@@ -73,10 +69,10 @@ class AutoLogger:
     def getEffectiveLevel(self) -> int:
         return self.logging_instance.getEffectiveLevel()
 
-    def addFilter(self, filter_: Filter) -> None:
+    def addFilter(self, filter_: logging.Filter) -> None:
         self.logging_instance.addFilter(filter_)
 
-    def removeFilter(self, filter_: Filter) -> None:
+    def removeFilter(self, filter_: logging.Filter) -> None:
         self.logging_instance.removeFilter(filter_)
 
 
