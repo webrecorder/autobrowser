@@ -1,9 +1,8 @@
-from abc import ABC
 from asyncio import AbstractEventLoop, CancelledError, Task, sleep
 from typing import Any, Dict, List, Optional, Union
 
-from ujson import loads
 from aioredis import Channel
+from ujson import loads
 
 from autobrowser.automation import AutomationConfig, BrowserExitInfo
 from autobrowser.chrome_browser import Chrome
@@ -31,7 +30,7 @@ GET_BROWSER_INFO_URL: str = "/info/{reqid}"
 WAIT_TIME: float = 0.5
 
 
-class ShepherdDriver(BaseDriver, ABC):
+class ShepherdDriver(BaseDriver):
     """An abstract base driver class for using browsers managed by shepherd"""
 
     def __init__(
@@ -430,4 +429,4 @@ class MultiBrowserDriver(ShepherdDriver):
             self.shutdown_condition.initiate_shutdown()
 
     def __str__(self) -> str:
-        return f"SingleBrowserDriver(browsers={self.browsers}, conf={self.conf})"
+        return f"MultiBrowserDriver(browsers={self.browsers}, conf={self.conf})"

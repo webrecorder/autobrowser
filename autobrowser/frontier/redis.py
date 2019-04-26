@@ -3,7 +3,7 @@ from typing import Any, Awaitable, Dict, Iterable, Optional, Union
 
 from aioredis import Redis
 from async_timeout import timeout
-from ujson import dumps, loads
+from ujson import loads
 
 from autobrowser.automation import AutomationConfig, RedisKeys
 from autobrowser.scope import RedisScope
@@ -43,7 +43,7 @@ class RedisFrontier:
         self.config: AutomationConfig = config
         self.crawl_depth: int = -1
         self.currently_crawling: Optional[Dict[str, Union[str, int]]] = None
-        self.keys: RedisKeys = RedisKeys(self.config)
+        self.keys: RedisKeys = self.config.redis_keys
         self.logger: AutoLogger = create_autologger("frontier", "RedisFrontier")
         self.loop: AbstractEventLoop = Helper.ensure_loop(loop)
         self.redis: Redis = redis
@@ -171,9 +171,12 @@ class RedisFrontier:
         :return: The next URL to be crawled
         """
         self.currently_crawling = await self._pop_url()
-        self.logger.debug("next_url", f"the next URL is {self.currently_crawling}")
-        await self.add_to_pending(self.currently_crawling["url"])
-        return self.currently_crawling["url"]
+        self.logger.debug(
+            "next_url", f"the next URL is {Helper.json_string(self.currently_crawling)}"
+        )
+        cc_url: str = self.currently_crawling["url"]
+        await self.add_to_pending(cc_url)
+        return cc_url
 
     async def remove_current_from_pending(self) -> None:
         """If currently_crawling url is set, remove it from pending set"""
@@ -216,7 +219,7 @@ class RedisFrontier:
         :return: T/F indicating if the URL @ depth was added to the frontier
         """
         logged_method = "add"
-        url_info = {"url": url, "depth": depth}
+        url_info = Helper.json_string(url=url, depth=depth)
 
         in_scope = self.scope.in_scope(url)
         if not in_scope:
@@ -242,7 +245,7 @@ class RedisFrontier:
             return False
 
         self.logger.info(logged_method, f"Adding URL to the frontier - {url_info}")
-        await self.redis.rpush(self.keys.queue, dumps(url_info))
+        await self.redis.rpush(self.keys.queue, url_info)
         return True
 
     async def add_all(self, urls: Iterable[str]) -> bool:

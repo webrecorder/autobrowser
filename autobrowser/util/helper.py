@@ -8,7 +8,8 @@ from asyncio import (
     sleep,
 )
 from functools import partial
-from typing import Any, Awaitable, Callable, Dict, Optional, Union
+from typing import Any, Awaitable, Callable, Dict, Optional, Set, Union
+from urllib.parse import urlsplit
 
 from aiohttp import AsyncResolver, ClientSession, TCPConnector
 from async_timeout import timeout as aio_timeout
@@ -19,6 +20,7 @@ from ujson import dumps
 __all__ = ["Helper", "ListenerDict"]
 
 ListenerDict = Dict[str, Union[str, EventEmitter, Callable]]
+CrawlableSchemes: Set[str] = {"http", "https"}
 
 
 class Helper(SC_Helper):
@@ -105,6 +107,25 @@ class Helper(SC_Helper):
             pass
 
     @staticmethod
-    def logged_json_string(**kwargs: Any) -> str:
-        """A simple utility for creating valid json used to log additional info"""
-        return f"{kwargs}"
+    def json_string(*args: Any, **kwargs: Any) -> str:
+        """A simple utility for creating valid strings of json"""
+        if kwargs:
+            value = kwargs
+        elif len(args) == 1 and isinstance(args[0], (dict, list)):
+            value = args[0]
+        else:
+            value = args
+        return dumps(value, ensure_ascii=False, escape_forward_slashes=False)
+
+    @staticmethod
+    def url_has_crawlable_scheme(url: Optional[str] = None) -> bool:
+        """Returns T/F indicating if the supplied URL's scheme is
+        http or https.
+
+        :param url: The URL to be tested for a crawlable scheme
+        :return: T/F T/F indicating if the supplied URL's scheme
+        is crawlable
+        """
+        if not isinstance(url, str) or not url:
+            return False
+        return urlsplit(url).scheme in CrawlableSchemes

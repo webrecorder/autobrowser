@@ -1,4 +1,3 @@
-from abc import ABC
 from asyncio import AbstractEventLoop
 from collections import Counter
 from operator import itemgetter
@@ -17,7 +16,9 @@ from autobrowser.util import AutoLogger, Helper, create_autologger
 __all__ = ["BaseDriver"]
 
 
-class BaseDriver(Driver, ABC):
+class BaseDriver(Driver):
+    """An abstract driver class that provides a basic implementation for running an automation"""
+
     def __init__(
         self, conf: AutomationConfig, loop: Optional[AbstractEventLoop] = None
     ) -> None:
@@ -40,7 +41,7 @@ class BaseDriver(Driver, ABC):
 
     async def init(self) -> None:
         """Initialize the driver."""
-        redis_url = self.conf.get("redis_url")
+        redis_url = self.conf.redis_url
         self.logger.info("init", f"connecting to redis <url={redis_url}>")
         self.did_init = True
         self.redis = await create_redis_pool(
@@ -150,7 +151,7 @@ class BaseDriver(Driver, ABC):
         self.shutdown_condition.initiate_shutdown()
 
     def __str__(self) -> str:
-        return f"BaseDriver(conf={self.conf})"
+        return f"{self.__class__.__name__}(conf={self.conf})"
 
     def __repr__(self) -> str:
         return self.__str__()

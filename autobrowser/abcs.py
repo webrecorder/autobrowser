@@ -1,8 +1,8 @@
-from abc import ABC, abstractmethod
+from abc import ABCMeta, abstractmethod
 from asyncio import AbstractEventLoop, Task
 from typing import Any, Awaitable, Dict, List, Optional, TYPE_CHECKING, Union
 
-from pyee2 import EventEmitter
+from pyee2 import EventEmitterS
 
 if TYPE_CHECKING:
     from autobrowser.automation import AutomationConfig, BrowserExitInfo, TabClosedInfo
@@ -10,7 +10,8 @@ if TYPE_CHECKING:
 __all__ = ["Behavior", "BehaviorManager", "Browser", "Driver", "Tab"]
 
 
-class Behavior(ABC):
+# we use ABCMeta in order to not force a __dict__ on any subclass that does not explicitly opt in for one
+class Behavior(metaclass=ABCMeta):
     """A behavior represents a series of actions that are to be performed in the page (tab)
     or specific frame within the page.
 
@@ -24,7 +25,7 @@ class Behavior(ABC):
      - action loop -> while(not done): perform_action
     """
 
-    __slots__ = ()
+    __slots__: List[str] = []
 
     @property
     @abstractmethod
@@ -108,10 +109,10 @@ class Behavior(ABC):
         return self.run().__await__()
 
 
-class BehaviorManager(ABC):
+class BehaviorManager(metaclass=ABCMeta):
     """This class defines the expected interface for all behavior mangers"""
 
-    __slots__ = ()
+    __slots__: List[str] = []
 
     @abstractmethod
     async def behavior_for_url(self, url: str, tab: "Tab", **kwargs: Any) -> Behavior:
@@ -135,8 +136,10 @@ class BehaviorManager(ABC):
         pass
 
 
-class Browser(EventEmitter, ABC):
+class Browser(EventEmitterS, metaclass=ABCMeta):
     """A Browser class represents a remote Chrome browser and N tabs"""
+
+    __slots__: List[str] = []
 
     @property
     @abstractmethod
@@ -201,7 +204,7 @@ class Browser(EventEmitter, ABC):
         """
 
 
-class Driver(ABC):
+class Driver(metaclass=ABCMeta):
     """Abstract base driver class that defines a common interface for all
     driver implementations and is responsible for managing the redis connection.
 
@@ -217,7 +220,7 @@ class Driver(ABC):
      - shutdown
     """
 
-    __slots__ = ()
+    __slots__: List[str] = []
 
     @abstractmethod
     async def init(self) -> None:
@@ -294,8 +297,10 @@ class Driver(ABC):
         """
 
 
-class Tab(EventEmitter, ABC):
+class Tab(EventEmitterS, metaclass=ABCMeta):
     """This class defines the expected interface for all Tab classes"""
+
+    __slots__: List[str] = []
 
     @classmethod
     @abstractmethod
@@ -463,9 +468,15 @@ class Tab(EventEmitter, ABC):
     async def navigation_reset(self) -> None:
         """Navigates the tab to about:blank"""
 
-    async def collect_outlinks(self) -> None:
-        """Collect outlinks from the remote tab somehow.
+    async def collect_outlinks(self, all_frames: bool = False) -> None:
+        """Collect out links from the remote tab somehow, typically the
+        the gathering of out links is retrieving the ones collected by
+        the running behavior.
 
-        Only tabs that require the extraction of outlinks should override
+        Only tabs that require the extraction of out links should override
         (provide implementation) for this method.
+
+        :param all_frames: Flag indicating if out links should be collected using
+        the CDP in order to gather from all (i)frames and the ones collected by
+        the behavior
         """

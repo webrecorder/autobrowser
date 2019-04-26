@@ -1,5 +1,4 @@
 """Abstract base classes that implements the base functionality of a tab as defined by autobrowser.abcs.Tab"""
-from abc import ABC
 from asyncio import AbstractEventLoop, CancelledError, Task, gather, sleep
 from base64 import b64decode
 from io import BytesIO
@@ -19,8 +18,32 @@ from autobrowser.util import AutoLogger, Helper, create_autologger
 __all__ = ["BaseTab"]
 
 
-class BaseTab(Tab, ABC):
-    """Base Automation Tab Class that represents a browser tab in a running browser"""
+class BaseTab(Tab):
+    """An abstract automation tab class that represents a browser tab in a running browser and
+    provides the base implementation for
+    """
+
+    __slots__ = [
+        "browser",
+        "redis",
+        "session",
+        "tab_data",
+        "client",
+        "target_info",
+        "logger",
+        "_url",
+        "_id",
+        "_behaviors_paused",
+        "_connection_closed",
+        "_running",
+        "_reconnecting",
+        "_graceful_shutdown",
+        "_default_handling_of_dialogs",
+        "_behavior_run_task",
+        "_reconnect_promise",
+        "_running_behavior",
+        "_close_reason",
+    ]
 
     def __init__(
         self,
@@ -321,11 +344,15 @@ class BaseTab(Tab, ABC):
         """
         logged_method = "capture_screenshot"
         self.logger.info(logged_method, "capturing screenshot of page")
-        # get page metrics so we can resize, virtually, to the full page contents
-        metrics = await self.client.Page.getLayoutMetrics()
-        content_size = metrics["contentSize"]
-        width = ceil(content_size["width"])
-        height = ceil(content_size["height"])
+        if self.config.screenshot_dimensions is not None:
+            # use configured screen shot width height
+            width, height = self.config.screenshot_dimensions
+        else:
+            # get page metrics so we can resize, virtually, to the full page contents
+            metrics = await self.client.Page.getLayoutMetrics()
+            content_size = metrics["contentSize"]
+            width = ceil(content_size["width"])
+            height = ceil(content_size["height"])
         # do the virtual resize, take the screenshot, and  then reset
         await self.client.Emulation.setDeviceMetricsOverride(
             mobile=False,

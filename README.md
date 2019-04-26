@@ -1,8 +1,9 @@
-autobrowser
-=====================================
-Webrecorder's web browser automation framework
+# autobrowser
+[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
 
-### Configuration
+Webrecorder's high-fidelity browser-based crawler
+
+## Configuration
 
 Configuration of autobrowser is done primarily through the environment variables listed below.
 
@@ -111,8 +112,13 @@ SCREENSHOT_TARGET_URI **Required if SCREENSHOT_API_URL is provided**
 SCREENSHOT_FORMAT
  - The type of screenshot to be taken `png` or `jpg` (string)
  - Defaults to `png`
+ 
+SCREENSHOT_DIMENSIONS
+ - The dimensions of the screen shot to be taken (number). 
+ - Format: width height, space or comma separated
+ - Defaults to the natural width height of the page's content 
 
-#### Javascript expressions
+#### Javascript Expressions
  
 BEHAVIOR_ACTION_EXPRESSION
  - The expression used to initiate the next action of a behavior (string)
@@ -121,6 +127,14 @@ BEHAVIOR_ACTION_EXPRESSION
 BEHAVIOR_PAUSED_EXPRESSION
  - The expression used to determine if the running behavior is in the paused state (string)
  - Defaults to: `window.$WBBehaviorPaused === true`
+
+PAUSE_BEHAVIOR_EXPRESSION
+ - The expression used to pause a running behavior
+ - Defaults to: `window.$WBBehaviorPaused = true`
+
+UNPAUSE_BEHAVIOR_EXPRESSION
+ - The expression used to un-pause a running behavior
+ - Defaults to: `window.$WBBehaviorPaused = false`
 
 PAGE_URL_EXPRESSION
  - The expression used to determine the URL of the page (string)

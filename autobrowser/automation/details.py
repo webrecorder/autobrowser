@@ -4,7 +4,7 @@ from collections import Counter
 from enum import Enum, auto
 from operator import itemgetter
 from os import environ
-from typing import Any, Counter as CounterT, Dict, List, Optional, Type, Union
+from typing import Any, Counter as CounterT, Dict, List, Optional, Tuple, Type, Union
 
 import attr
 import ujson
@@ -20,6 +20,8 @@ __all__ = [
 ]
 
 logger = logging.getLogger("autobrowser")
+
+ScreenShotDims = Tuple[Union[float, int], Union[float, int]]
 
 
 def get_browser_host_ip(browser_host: Optional[str] = None) -> Optional[str]:
@@ -55,7 +57,7 @@ def env(
 
     if type_ == str:
         return val
-    elif type_ == bool:
+    if type_ == bool:
         if val.lower() in ["1", "true", "yes", "y", "ok", "on"]:
             return True
         if val.lower() in ["0", "false", "no", "n", "nok", "off"]:
@@ -63,22 +65,59 @@ def env(
         raise ValueError(
             f"Invalid environment variable '{key}' (expected a boolean): '{val}'"
         )
-    elif type_ == int:
+    if type_ == int:
         try:
             return int(val)
         except ValueError:
             raise ValueError(
                 f"Invalid environment variable '{key}' (expected a integer): '{val}'"
             )
-    elif type_ == float:
+    if type_ == float:
         try:
             return float(val)
         except ValueError:
             raise ValueError(
                 f"Invalid environment variable '{key}' (expected a float): '{val}'"
             )
-    elif type_ == dict:
+    if type_ == dict:
         return ujson.loads(val)
+
+
+def convert_screenshot_dims(
+    value: Optional[Union[str, ScreenShotDims]]
+) -> Optional[ScreenShotDims]:
+    """Converts the supplied env string to a 2 tuple representing the width and height
+    of the screen shot to be taken.
+
+    If the supplied value is not a string, expecting a 2 tuple of int/float, it is validated returning
+    None if the value is invalid.
+
+    :return: The screen shot dimensions as a 2 tuple (width, height)
+    """
+    if value is None:
+        return value
+    dimensions = None
+    if not isinstance(value, str):
+        allowed_value = float, int
+        if (
+            isinstance(value, tuple)
+            and isinstance(value[0], allowed_value)
+            and isinstance(value[1], allowed_value)
+        ):
+            return value
+        logger.exception(
+            f"The supplied value ({value}) for the screen shot dimensions is invalid, falling back to defaults"
+        )
+        return dimensions
+    width, height = value.split("," if "," in value else " ")
+    try:
+        dimensions = float(width), float(height)
+    except Exception as e:
+        logger.exception(
+            "Failed to convert the configured SCREENSHOT_DIM to floats, falling back to defaults",
+            exc_info=e,
+        )
+    return dimensions
 
 
 @attr.dataclass(slots=True)
@@ -102,6 +141,7 @@ class AutomationConfig:
 
     # configuration details concerning redis
     redis_url: str = attr.ib(default=None)
+    redis_keys: "RedisKeys" = attr.ib()
 
     # configuration details concerning behaviors
     behavior_api_url: str = attr.ib(default=None)
@@ -130,6 +170,9 @@ class AutomationConfig:
     screenshot_api_url: Optional[str] = attr.ib(default=None)
     screenshot_target_uri: Optional[str] = attr.ib(default=None)
     screenshot_format: Optional[str] = attr.ib(default=None)
+    screenshot_dimensions: Optional[Tuple[float, float]] = attr.ib(
+        default=None, converter=convert_screenshot_dims
+    )
 
     # other configuration details
     chrome_opts: Optional[Dict] = attr.ib(default=None, repr=False)
@@ -246,11 +289,16 @@ class AutomationConfig:
                 return value
         return getattr(self, key, None)
 
+    @redis_keys.default
+    def redis_keys_default(self) -> "RedisKeys":
+        """Creates and returns the value for the redis_config property"""
+        return RedisKeys(self)
+
 
 def build_automation_config(
     options: Optional[Dict] = None, **kwargs: Any
 ) -> AutomationConfig:
-    """
+    """Builds and returns the automation's configuration
 
     :param options: Optional additional configuration options supplied as an dict
     :param kwargs: Optional additional configuration options supplied as keyword args
@@ -286,6 +334,7 @@ def build_automation_config(
             "SCREENSHOT_TARGET_URI", default="urn:screenshot:{url}"
         ),
         screenshot_format=env("SCREENSHOT_FORMAT", default="png"),
+        screenshot_dimensions=env("SCREENSHOT_DIMENSIONS"),
         cdp_port=env("CDP_PORT", default="9222"),
         req_browser_path=env("REQ_BROWSER_PATH", default="/request_browser/"),
         init_browser_pathq=env("INIT_BROWSER_PATH", default="/init_browser?reqid="),
@@ -300,7 +349,7 @@ def build_automation_config(
             "PAUSE_BEHAVIOR_EXPRESSION", default="window.$WBBehaviorPaused = true"
         ),
         unpause_behavior_expression=env(
-            "PAUSE_BEHAVIOR_EXPRESSION", default="window.$WBBehaviorPaused = false"
+            "UNPAUSE_BEHAVIOR_EXPRESSION", default="window.$WBBehaviorPaused = false"
         ),
         page_url_expression=env("PAGE_URL_EXPRESSION", default="window.location.href"),
         outlinks_expression=env("OUTLINKS_EXPRESSION", default="window.$wbOutlinks$"),

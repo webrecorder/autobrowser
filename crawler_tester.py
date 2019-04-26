@@ -67,27 +67,33 @@ dummy_auto_id = "321"
 info_key = f"a:{dummy_auto_id}:info"
 scope_key = f"a:{dummy_auto_id}:scope"
 seen_key = f"a:{dummy_auto_id}:seen"
+done_key = f"{dummy_auto_id}:br:done"
 q_key = f"a:{dummy_auto_id}:q"
 
 default_seed_list = [
+    "http://garden-club.link/",
+    "https://www.iana.org/",
+    "http://www.spiritsurfers.net/",
     "https://nodejs.org/dist/latest-v11.x/docs/api/",
-    # "https://www.instagram.com/rhizomedotorg",
-    # "https://www.youtube.com/watch?v=MfH0oirdHLs",
-    # "https://www.facebook.com/Smithsonian/",
-    # "https://twitter.com/hashtag/iipcwac18?vertical=default&src=hash",
-    # "https://soundcloud.com/perturbator",
-    # "https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview",
-    # "https://twitter.com/webrecorder_io",
-    # "https://rhizome.org/",
+    "https://www.instagram.com/rhizomedotorg",
+    "https://www.youtube.com/watch?v=MfH0oirdHLs",
+    "https://www.facebook.com/Smithsonian/",
+    "https://twitter.com/hashtag/iipcwac18?vertical=default&src=hash",
+    "https://soundcloud.com/perturbator",
+    "https://www.slideshare.net/annaperricci?utm_campaign=profiletracking&utm_medium=sssite&utm_source=ssslideview",
+    "https://twitter.com/webrecorder_io",
+    "https://rhizome.org/",
 ]
 
 
-async def reset_redis(redis: Redis, loop: AbstractEventLoop) -> None:
-    await asyncio.gather(
-        redis.delete(q_key, info_key, seen_key, scope_key),
-        redis.hset(info_key, "crawl_depth", 2),
-        loop=loop,
-    )
+async def reset_redis(
+    redis: Redis, loop: AbstractEventLoop, hard: bool = False
+) -> None:
+    if hard:
+        await redis.flushall()
+    else:
+        await redis.delete(q_key, info_key, seen_key, scope_key, done_key),
+    await redis.hset(info_key, "crawl_depth", 2),
     for url in default_seed_list:
         await asyncio.gather(
             redis.rpush(q_key, ujson.dumps({"url": url, "depth": 0})),
@@ -95,14 +101,11 @@ async def reset_redis(redis: Redis, loop: AbstractEventLoop) -> None:
             loop=loop,
         )
 
-
 RESET_REDIS = True
+RESET_REDIS_HARD = True
 
 logger = logging.getLogger("autobrowser")
 logger.setLevel(logging.DEBUG)
-
-# logging.getLogger("cripy.connection").setLevel(logging.DEBUG)
-# logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 async def crawl_baby_crawl() -> int:
@@ -111,7 +114,7 @@ async def crawl_baby_crawl() -> int:
         redis: Redis = await aioredis.create_redis(
             "redis://localhost", loop=loop, encoding="utf-8"
         )
-        await reset_redis(redis, loop)
+        await reset_redis(redis, loop, RESET_REDIS_HARD)
         redis.close()
         await redis.wait_closed()
     local_driver = LocalBrowserDiver(
@@ -123,7 +126,6 @@ async def crawl_baby_crawl() -> int:
         ),
         loop=loop,
     )
-
     return await local_driver.run()
 
 

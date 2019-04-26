@@ -15,6 +15,7 @@ class WRBehaviorRunner(Behavior):
         "__weakref__",
         "_did_init",
         "_done",
+        "_num_actions_performed",
         "_paused",
         "_running_task",
         "behavior_js",
@@ -62,6 +63,7 @@ class WRBehaviorRunner(Behavior):
         self._paused: bool = False
         self._did_init: bool = False
         self._running_task: Optional[Task] = None
+        self._num_actions_performed: int = 0
 
     @property
     def done(self) -> bool:
@@ -208,19 +210,37 @@ class WRBehaviorRunner(Behavior):
             await helper_one_tick_sleep()
 
     async def _post_action(self) -> None:
-        """Executes the actions we are configured to do after an behavior's action"""
+        """Executes the actions we are configured to do after an behavior's action.
+
+        Available post run actions:
+         - Out link collection
+        """
         logged_method = "post action"
-        if self.collect_outlinks:
-            self.logger.debug(logged_method, "collecting outlinks")
+        self.logger.debug(
+            logged_method, Helper.json_string(action_count=self._num_actions_performed)
+        )
+        self._num_actions_performed += 1
+        # If the behavior runner is configured to collect out links, the collection occurs after every 10
+        # actions initiated. This is done in order to ensure that the performance of running an behavior does
+        # not degrade due to a page having lots of out links (10k+).
+        # Note: the previous handling of out links was to collect them after every action
+        if self.collect_outlinks and self._num_actions_performed % 10 == 0:
+            self.logger.debug(logged_method, f"collecting outlinks")
             await self.tab.collect_outlinks()
 
     async def _post_run(self) -> None:
-        """Executes the actions we are configured to do after the behavior has run"""
+        """Executes the actions we are configured to do after the behavior has run.
+
+        Available post run actions:
+          - Take and upload a screen shot
+          - Out link collection
+        """
         if self.take_screen_shot:
-            try:
-                await self.tab.capture_and_upload_screenshot()
-            except Exception:
-                pass
+            await Helper.no_raise_await(self.tab.capture_and_upload_screenshot())
+        # collect any remaining out links collected by the behavior
+        # done in _post_run due to new handling of out link collection
+        if self.collect_outlinks:
+            await Helper.no_raise_await(self.tab.collect_outlinks(True))
         self.tab.unset_running_behavior(self)
 
     def _finished(self) -> None:

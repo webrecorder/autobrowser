@@ -1,14 +1,15 @@
-from asyncio import Task
+import time
+from asyncio import Task, gather
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import aiofiles
 from simplechrome.errors import NavigationError
 from simplechrome.frame_manager import Frame, FrameManager
 from simplechrome.network_manager import NetworkManager, Response
 
-from autobrowser.automation import CloseReason, RedisKeys
+from autobrowser.automation import CloseReason
 from autobrowser.frontier import RedisFrontier
 from autobrowser.util import Helper
 from .basetab import BaseTab
@@ -40,8 +41,22 @@ class CrawlerTab(BaseTab):
            collected outlinks
     """
 
+    __slots__ = [
+        "collect_outlinks_expression",
+        "clear_outlinks_expression",
+        "frames",
+        "network",
+        "crawl_loop_task",
+        "frontier",
+        "href_fn",
+        "_max_behavior_time",
+        "_navigation_timeout",
+        "_exit_crawl_loop",
+    ]
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.href_fn: str = "function () { return this.href; }"
         #: The variable name for the outlinks discovered by running the behavior
         self.collect_outlinks_expression: str = self.config.outlinks_expression
         self.clear_outlinks_expression: str = self.config.clear_outlinks_expression
@@ -53,7 +68,6 @@ class CrawlerTab(BaseTab):
         self.frontier: RedisFrontier = RedisFrontier(
             self.redis, config=self.config, loop=self.loop
         )
-        self.redis_keys: RedisKeys = self.frontier.keys
         #: The maximum amount of time the crawler should run behaviors for
         self._max_behavior_time: Union[int, float] = self.config.max_behavior_time
         self._navigation_timeout: Union[int, float] = self.config.navigation_timeout
@@ -79,18 +93,36 @@ class CrawlerTab(BaseTab):
         """
         return self.frames.mainFrame
 
-    async def collect_outlinks(self) -> None:
-        """Retrieves the outlinks collected by the running behaviors and adds them to the frontier"""
+    async def collect_outlinks(self, all_frames: bool = False) -> None:
+        """Retrieves the outlinks collected by the running behaviors and adds them to the frontier
+
+        :param all_frames: Flag indicating if outlinks should be collected using the CDP as
+        well as gathering the ones collected by the behavior
+        """
         logged_method = "collect_outlinks"
+        if all_frames:
+            try:
+                await self.collect_outlinks_all_frames()
+            except Exception as e:
+                self.logger.exception(
+                    logged_method, "manual collection failed", exc_info=e
+                )
+            else:
+                self.logger.debug(logged_method, "manual out link collection succeeded")
+
         out_links = None
         try:
             out_links = await self.evaluate_in_page(self.collect_outlinks_expression)
         except Exception as e:
             self.logger.exception(
-                logged_method, "collecting outlinks failed", exc_info=e
+                logged_method,
+                "gathering behavior collected out links failed",
+                exc_info=e,
             )
         else:
-            self.logger.debug(logged_method, "collected")
+            self.logger.debug(
+                logged_method, "gathering behavior collected out links succeeded"
+            )
 
         if out_links is not None:
             try:
@@ -165,7 +197,8 @@ class CrawlerTab(BaseTab):
                     exc_info=e,
                 )
 
-        self.logger.info(logged_method, "crawl loop task ended")
+        end_info = Helper.json_string(id=self.reqid, time=int(time.time()))
+        self.logger.info(logged_method, f"crawl loop task ended - {end_info}")
 
         if self._graceful_shutdown:
             await self.frontier.remove_current_from_pending()
@@ -177,7 +210,7 @@ class CrawlerTab(BaseTab):
         if self._close_reason is None and is_frontier_exhausted:
             self._close_reason = CloseReason.CRAWL_END
 
-        await self.redis.sadd(self.redis_keys.auto_done, self.browser.reqid)
+        await self.redis.lpush(self.config.redis_keys.auto_done, end_info)
         await super().close()
 
     async def goto(
@@ -199,14 +232,14 @@ class CrawlerTab(BaseTab):
                 url, waitUntil=wait, timeout=self._navigation_timeout
             )
             info = (
-                Helper.logged_json_string(
+                Helper.json_string(
                     url=url,
                     responseURL=response.url,
                     status=response.status,
                     mime=response.mimeType,
                 )
                 if response is not None
-                else Helper.logged_json_string(url=url)
+                else Helper.json_string(url=url)
             )
             self.logger.info(logged_method, f"we navigated to the page - {info}")
             self.frontier.crawling_new_page(self.main_frame.url)
@@ -399,7 +432,6 @@ class CrawlerTab(BaseTab):
            - navigation to a page fails for unknown reasons
            - the frontier becomes exhausted
         """
-        frontier_exhausted = False
         logged_method = "_crawl_loop"
         should_exit_crawl_loop = self._should_exit_crawl_loop
         next_crawl_url = self.frontier.next_url
@@ -411,7 +443,7 @@ class CrawlerTab(BaseTab):
 
         # loop until frontier is exhausted or we should exit crawl loop
         while 1:
-            if frontier_exhausted or should_exit_crawl_loop():
+            if should_exit_crawl_loop():
                 log_info(
                     logged_method, "exiting crawl loop before crawling the next url"
                 )
@@ -425,12 +457,15 @@ class CrawlerTab(BaseTab):
 
             await handle_navigation_result(next_url, navigation_result)
 
-            if should_exit_crawl_loop():
+            frontier_exhausted = await is_frontier_exhausted()
+
+            if frontier_exhausted or should_exit_crawl_loop():
                 log_info(
-                    logged_method, "exiting crawl loop after crawling the current url"
+                    logged_method,
+                    f"exiting crawl loop after crawling the next url - frontier exhausted = {frontier_exhausted}",
                 )
                 break
-            frontier_exhausted = await is_frontier_exhausted()
+
             # we sleep for one event loop tick in order to ensure that other
             # coroutines can do their thing if they are waiting. e.g. shutdowns etc
             await one_tick_sleep()
@@ -505,6 +540,66 @@ class CrawlerTab(BaseTab):
                 else "attempted to visit all inner page links but an exception occurred"
             )
             self.logger.exception(logged_method, msg, exc_info=e)
+
+    async def collect_outlinks_all_frames(self) -> None:
+        """Manually collects out links (a[href], area[href]) from all (i)frames in the current page"""
+        logged_method = "collect_outlinks_all_frames"
+        self.logger.debug(logged_method, "collecting")
+        try:
+            await self.client.DOM.enable()
+        except Exception as e:
+            self.logger.exception(logged_method, "failed to enabled the DOM domain", exc_info=e)
+            return
+
+        out_links: List[str] = []
+        promises = []
+        add_extraction_promise = promises.append
+        extract_href_from_remote_node = self._extract_href_from_remote_node
+
+        # we accumulate a list of extraction promises rather than awaiting each
+        # extraction sequentially because asyncio.gather runs the accumulated
+        # promises concurrently allowing us to efficiently extract the href
+        # value of the a or area nodes contained in every (i)frame of the page
+        nodes = await self.client.DOM.getFlattenedDocument(depth=-1, pierce=True)
+        for node in nodes["nodes"]:
+            node_name = node["localName"]
+            if node_name == "a" or node_name == "area":
+                add_extraction_promise(extract_href_from_remote_node(node, out_links))
+        if promises:
+            await gather(*promises, loop=self.loop, return_exceptions=True)
+        try:
+            await self.client.DOM.disable()
+        except Exception as e:
+            self.logger.exception(logged_method, "failed to disable the DOM domain", exc_info=e)
+        if out_links:
+            await self.frontier.add_all(out_links)
+
+    async def _extract_href_from_remote_node(
+        self, node: Dict, outlink_accum: List[str]
+    ) -> None:
+        """Converts the supplied node to it's runtime object and retrieves the value of
+        calling the href property getting on the node, adding the value of the href
+        to the supplied out link accumulator if it has a crawlable scheme e.g. http(s)
+
+        :param node: A node dict returned by DOM.getFlattenedDocument
+        :param outlink_accum: A list used to accumulate valid out links
+        """
+        # the supplied node dictionary represents the dom node as is
+        # i.e. any attributes listed in that dictionary are not resolved
+        # according to the browser's attribute resolution algorithm
+        # hence the need to resolve (convert the node to a runtime DOM object)
+        # and call the node's getter for the href attribute
+        runtime_node = await self.client.DOM.resolveNode(nodeId=node["nodeId"])
+        obj_id = runtime_node["object"]["objectId"]
+        results = await self.client.Runtime.callFunctionOn(
+            self.href_fn, objectId=obj_id
+        )
+        await self.client.Runtime.releaseObject(objectId=obj_id)
+        # the url here is fully resolved against the origin it exists in
+        # thus safe for usage in programmatic navigation
+        url = results.get("result", {}).get("value")
+        if Helper.url_has_crawlable_scheme(url):
+            outlink_accum.append(url)
 
     def _should_exit_crawl_loop(self) -> bool:
         """Returns T/F indicating if the crawl loop should be exited based on if

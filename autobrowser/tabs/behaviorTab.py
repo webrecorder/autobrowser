@@ -1,3 +1,5 @@
+from typing import List
+
 from autobrowser.util.helper import Helper
 from .basetab import BaseTab
 
@@ -5,6 +7,9 @@ __all__ = ["BehaviorTab"]
 
 
 class BehaviorTab(BaseTab):
+
+    __slots__: List[str] = []
+
     @classmethod
     def create(cls, *args, **kwargs) -> "BehaviorTab":
         return cls(*args, **kwargs)
@@ -21,7 +26,7 @@ class BehaviorTab(BaseTab):
         )
         self.logger.info(
             logged_method,
-            Helper.logged_json_string(
+            Helper.json_string(
                 url=url,
                 paused_flag_exists=behavior_paused_flag,
                 behavior_not_running=behavior_not_running,
