@@ -301,9 +301,8 @@ class CrawlerTab(BaseTab):
                 else "we were not configured to wait"
             )
             self.logger.info(
-                logged_method, f"the frontier is empty and {specifics}, exiting"
+                logged_method, f"the frontier is empty and {specifics}, we will be exiting"
             )
-            return await self.close()
         self.crawl_loop_task = self.loop.create_task(self.crawl())
         self.logger.info(logged_method, "initialized")
         await Helper.one_tick_sleep()
