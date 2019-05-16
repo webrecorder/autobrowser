@@ -24,8 +24,8 @@ class WRBehaviorRunner(Behavior):
         "logger",
         "loop",
         "next_action_expression",
+        "post_run_actions",
         "tab",
-        "take_screen_shot",
     ]
 
     def __init__(
@@ -35,7 +35,7 @@ class WRBehaviorRunner(Behavior):
         next_action_expression: str,
         loop: Optional[AbstractEventLoop] = None,
         collect_outlinks: bool = False,
-        take_screen_shot: bool = False,
+        post_run_actions: bool = False,
         frame: Optional[Union[Frame, Callable[[], Frame]]] = None,
     ) -> None:
         """Initialize the new WRBehaviorRunner instance
@@ -45,7 +45,7 @@ class WRBehaviorRunner(Behavior):
         :param next_action_expression: The JS expression used to initiate a behavior's action
         :param loop: The event loop used by the automation
         :param collect_outlinks: Should outlinks be collected after each action
-        :param take_screen_shot: Should a screenshot be taken once the behavior is done
+        :param post_run_actions: Should a screenshot be taken once the behavior is done
         :param frame: Optional reference to or callable returning a simplechrome.FrameManager.Frame
         that the behavior is to be run in
         """
@@ -53,7 +53,7 @@ class WRBehaviorRunner(Behavior):
         self.tab: Tab = tab
         self.next_action_expression: str = next_action_expression
         self.collect_outlinks: bool = collect_outlinks
-        self.take_screen_shot: bool = take_screen_shot
+        self.post_run_actions: bool = post_run_actions
         self.frame: Optional[Union[Frame, Callable[[], Frame]]] = frame
         self.loop: AbstractEventLoop = Helper.ensure_loop(loop)
         self.logger: AutoLogger = create_autologger(
@@ -235,12 +235,12 @@ class WRBehaviorRunner(Behavior):
           - Take and upload a screen shot
           - Out link collection
         """
-        if self.take_screen_shot:
-            await Helper.no_raise_await(self.tab.capture_and_upload_screenshot())
         # collect any remaining out links collected by the behavior
         # done in _post_run due to new handling of out link collection
         if self.collect_outlinks:
             await Helper.no_raise_await(self.tab.collect_outlinks(True))
+        if self.post_run_actions:
+            await Helper.no_raise_await(self.tab.post_behavior_run())
         self.tab.unset_running_behavior(self)
 
     def _finished(self) -> None:
@@ -267,7 +267,7 @@ class WRBehaviorRunner(Behavior):
 
     def __str__(self) -> str:
         info = f"done={self._done}, paused={self._paused}, init={self._did_init}"
-        return f"WRBehaviorRunner({info}, outlinks={self.collect_outlinks}, screenshot={self.take_screen_shot})"
+        return f"WRBehaviorRunner({info}, outlinks={self.collect_outlinks}, post_run_actions={self.post_run_actions})"
 
     def __repr__(self) -> str:
         return self.__str__()

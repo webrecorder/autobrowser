@@ -2,13 +2,13 @@
 from asyncio import AbstractEventLoop, CancelledError, Task, gather, sleep
 from base64 import b64decode
 from io import BytesIO
-from typing import Any, Awaitable, Dict, Optional
+from typing import Any, Dict, Optional
 
 from aiohttp import ClientResponseError, ClientSession
 from aioredis import Redis
 from cripy import Client, connect
 from math import ceil
-from simplechrome.network_idle_monitor import NetworkIdleMonitor
+from simplechrome import NetworkIdleMonitor
 
 from autobrowser.abcs import Behavior, BehaviorManager, Browser, Tab
 from autobrowser.automation import AutomationConfig, CloseReason, TabClosedInfo
@@ -24,25 +24,25 @@ class BaseTab(Tab):
     """
 
     __slots__ = [
+        "_behavior_run_task",
+        "_behaviors_paused",
+        "_close_reason",
+        "_connection_closed",
+        "_default_handling_of_dialogs",
+        "_graceful_shutdown",
+        "_id",
+        "_reconnect_promise",
+        "_reconnecting",
+        "_running",
+        "_running_behavior",
+        "_url",
+        "_viewport",
         "browser",
+        "client",
+        "logger",
         "redis",
         "session",
         "tab_data",
-        "client",
-        "target_info",
-        "logger",
-        "_url",
-        "_id",
-        "_behaviors_paused",
-        "_connection_closed",
-        "_running",
-        "_reconnecting",
-        "_graceful_shutdown",
-        "_default_handling_of_dialogs",
-        "_behavior_run_task",
-        "_reconnect_promise",
-        "_running_behavior",
-        "_close_reason",
     ]
 
     def __init__(
@@ -59,8 +59,7 @@ class BaseTab(Tab):
         self.redis = redis
         self.session = session
         self.tab_data: Dict[str, str] = tab_data
-        self.client: Client = None
-        self.target_info: Optional[Dict] = None
+        self.client: Optional[Client] = None
         self.logger: AutoLogger = create_autologger("tabs", self.__class__.__name__)
         self._url: str = self.tab_data["url"]
         self._id: str = self.tab_data["id"]
@@ -74,6 +73,7 @@ class BaseTab(Tab):
         self._reconnect_promise: Optional[Task] = None
         self._running_behavior: Optional[Behavior] = None
         self._close_reason: Optional[CloseReason] = None
+        self._viewport: Optional[Dict] = None
 
     @property
     def loop(self) -> AbstractEventLoop:
@@ -124,6 +124,14 @@ class BaseTab(Tab):
         """Is this tab attempting to reconnect to the tab"""
         return self._running and self._reconnecting
 
+    def devtools_reconnect(self, result: Dict[str, str]) -> None:
+        """Callback used to reconnect to the browser tab when the client connection was
+        replaced with the devtools."""
+        if result["reason"] == "replaced_with_devtools":
+            self._reconnecting = True
+            self._running = False
+            self._reconnect_promise = self._loop.create_task(self._wait_for_reconnect())
+
     def set_running_behavior(self, behavior: Behavior) -> None:
         """Set the tabs running behavior (done automatically by
         behaviors)
@@ -165,14 +173,6 @@ class BaseTab(Tab):
             pass
         self._reconnecting = False
 
-    def devtools_reconnect(self, result: Dict[str, str]) -> None:
-        """Callback used to reconnect to the browser tab when the client connection was
-        replaced with the devtools."""
-        if result["reason"] == "replaced_with_devtools":
-            self._reconnecting = True
-            self._running = False
-            self._reconnect_promise = self._loop.create_task(self._wait_for_reconnect())
-
     async def wait_for_reconnect(self) -> None:
         """If the client connection has been disconnected and we are
         reconnecting, waits for reconnection to happen"""
@@ -182,38 +182,24 @@ class BaseTab(Tab):
             return
         await self._reconnect_promise
 
-    def wait_for_net_idle(
+    async def wait_for_net_idle(
         self, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
-    ) -> Awaitable[None]:
+    ) -> None:
         """Returns a future that  resolves once network idle occurs.
 
         See the options of autobrowser.util.netidle.monitor for a complete
         description of the available arguments
         """
-        return NetworkIdleMonitor.monitor(
+        logged_method = "wait_for_net_idle"
+        self.logger.debug(logged_method, "waiting for network idle")
+        await NetworkIdleMonitor.monitor(
             self.client,
             num_inflight=num_inflight,
             idle_time=idle_time,
             global_wait=global_wait,
             loop=self.loop,
         )
-
-    async def _wait_for_reconnect(self) -> None:
-        """Attempt to reconnect to browser tab after client connection was replayed with
-        the devtools"""
-        self_init = self.init
-        loop = self.loop
-        while True:
-            try:
-                await self_init()
-                break
-            except Exception as e:
-                print(e)
-
-            await sleep(3.0, loop=loop)
-        self._reconnecting = False
-        if self._reconnect_promise and not self._reconnect_promise.done():
-            self._reconnect_promise.cancel()
+        self.logger.debug(logged_method, "network idle reached")
 
     async def evaluate_in_page(
         self, js_string: str, contextId: Optional[Any] = None
@@ -275,7 +261,7 @@ class BaseTab(Tab):
         logged_method = "connect_to_tab"
         self.logger.debug(logged_method, f"connecting to the browser {self.tab_data}")
         self.client = await connect(
-            self.tab_data["webSocketDebuggerUrl"], remote=True, loop=self.loop
+            self.tab_data["webSocketDebuggerUrl"], loop=self.loop
         )
 
         self.logger.debug(logged_method, "connected to browser")
@@ -305,6 +291,7 @@ class BaseTab(Tab):
         if self._running:
             return
         await self.connect_to_tab()
+        await self._apply_browser_overrides()
         self._running = True
 
     async def close(self) -> None:
@@ -337,6 +324,10 @@ class BaseTab(Tab):
         await self.close()
         self.logger.info(logged_method, "shutdown complete")
 
+    async def post_behavior_run(self) -> None:
+        await self.capture_and_upload_screenshot()
+        await self.extract_page_data_and_send()
+
     async def capture_screenshot(self) -> bytes:
         """Capture a screenshot (in png format) of the current page.
 
@@ -344,32 +335,48 @@ class BaseTab(Tab):
         """
         logged_method = "capture_screenshot"
         self.logger.info(logged_method, "capturing screenshot of page")
+        # focus our tabs main window just in case we lost focus somewhere
+        # i suspect that chrome has issues with non-focused/activated windows
+        # and screenshots
+        await self.client.send(
+            "Target.activateTarget", {"targetId": self.tab_data["id"]}
+        )
+        # get page metrics so we can resize, virtually, to the full page contents
+        metrics = await self.client.Page.getLayoutMetrics()
+        content_size = metrics["contentSize"]
+        content_width = ceil(content_size["width"])
+        content_height = ceil(content_size["height"])
+
         if self.config.screenshot_dimensions is not None:
             # use configured screen shot width height
-            width, height = self.config.screenshot_dimensions
+            sc_width, sc_height = self.config.screenshot_dimensions
         else:
-            # get page metrics so we can resize, virtually, to the full page contents
-            metrics = await self.client.Page.getLayoutMetrics()
-            content_size = metrics["contentSize"]
-            width = ceil(content_size["width"])
-            height = ceil(content_size["height"])
+            # use content width height
+            sc_width = content_width
+            sc_height = content_height
+
         # do the virtual resize, take the screenshot, and  then reset
         await self.client.Emulation.setDeviceMetricsOverride(
-            mobile=False,
-            width=width,
-            height=height,
-            deviceScaleFactor=1,
-            screenOrientation={"angle": 0, "type": "portraitPrimary"},
+            width=content_width,
+            height=content_height,
+            mobile=self._viewport["mobile"],
+            deviceScaleFactor=self._viewport["deviceScaleFactor"],
+            screenOrientation=self._viewport["screenOrientation"],
         )
+        # NOTE: we may need fromSurface=False to make our screen shot consider the viewport only
+        # not the surface (the entirety of the rendered chrome)
         result = await self.client.Page.captureScreenshot(
-            clip={"x": 0, "y": 0, "width": width, "height": height, "scale": 1},
+            clip={"x": 0, "y": 0, "width": sc_width, "height": sc_height, "scale": 1},
             format="png",
         )
-        await self.client.Emulation.clearDeviceMetricsOverride()
+        # reset back to our configured viewport
+        await self.client.Emulation.setDeviceMetricsOverride(**self._viewport)
         self.logger.info(logged_method, "captured screenshot of page")
         return b64decode(result.get("data", b""))
 
     async def capture_and_upload_screenshot(self) -> None:
+        if not self.config.should_take_screenshot:
+            return
         logged_method = "capture_and_upload_screenshot"
         screen_shot = None
         try:
@@ -383,36 +390,45 @@ class BaseTab(Tab):
                 logged_method,
                 "sending the captured screenshot to the configured endpoint",
             )
+            config = self.config
+            content_type = "image/png"
+            await self._upload_data(
+                config.screenshot_api_url,
+                params={
+                    "reqid": config.reqid,
+                    "target_uri": config.screenshot_target_uri.format(url=self._url),
+                    "content_type": content_type,
+                },
+                data=BytesIO(screen_shot),
+                headers={"content-type": content_type},
+            )
+
+    async def extract_page_data_and_send(self) -> None:
+        config = self.config
+        if self.config.should_retrieve_raw_dom:
             try:
-                config = self.config
-                content_type = "image/png"
-                async with self.session.put(
-                    config.screenshot_api_url,
-                    params={
-                        "reqid": config.reqid,
-                        "target_uri": config.screenshot_target_uri.format(
-                            url=self._url
-                        ),
-                        "content_type": content_type,
-                    },
-                    data=BytesIO(screen_shot),
-                    headers={"content-type": content_type},
-                ) as resp:
-                    resp.raise_for_status()
-            except ClientResponseError as e:
-                self.logger.exception(
-                    logged_method,
-                    "sent the captured screenshot but the server indicates a failure",
-                    exc_info=e,
-                )
+                dom = await self.client.DOM.getDocument(depth=-1, pierce=True)
             except Exception as e:
-                self.logger.exception(
-                    logged_method, "sending the captured screenshot failed", exc_info=e
+                dom = None
+            if dom is not None:
+                await self._upload_data(
+                    config.extracted_raw_dom_api_url,
+                    params={"reqid": config.reqid},
+                    json=dom,
                 )
-            else:
-                self.logger.info(
-                    logged_method,
-                    "sent the captured screenshot to the configured endpoint",
+
+        if self.config.should_retrieve_mhtml:
+            try:
+                mhtml = await self.client.Page.captureSnapshot("mthml")
+            except Exception as e:
+                mhtml = None
+            if mhtml is not None:
+                content_type = "text/mhtml"
+                await self._upload_data(
+                    config.extracted_mhtml_api_url,
+                    params={"reqid": config.reqid},
+                    data=mhtml,
+                    headers={"content-type": content_type},
                 )
 
     async def navigation_reset(self) -> None:
@@ -427,13 +443,130 @@ class BaseTab(Tab):
         else:
             self.logger.debug(logged_method, "Tab reset to about:blank")
 
-    async def __handle_page_dialog(self, event: Dict) -> None:
-        _type = event.get("type")
-        if _type == "alert":
-            accept = True
+    async def _apply_browser_overrides(self) -> None:
+        """Applies any configured browser overrides.
+        If none were configured, ensures that the User-Agent
+        of the browser does not blatantly state we are headless
+
+        Available overrides:
+          - User-Agent
+          - Accept-Language HTTP header
+          - The navigator.platform value
+          - Extra HTTP headers to be sent by the browser
+            Accept-Language and User-Agent is not included here
+          - Cookies to be pre-loaded
+          - Device emulation
+          - Geo location emulation
+        """
+        config = self.config
+        ua = config.browser_override("user_agent")
+        if ua is None:
+            version_info = await self.client.Browser.getVersion()
+            ua = version_info["userAgent"].replace("Headless", "")
+
+        geo_location = config.browser_override("geo_location")
+        if geo_location is not None:
+            await self.client.Emulation.setGeolocationOverride(
+                latitude=geo_location["latitude"], longitude=geo_location["longitude"]
+            )
+        accept_lang = config.browser_override("accept_language")
+        nav_plat = config.browser_override("navigator_platform")
+        await self.client.Network.setUserAgentOverride(
+            ua, acceptLanguage=accept_lang, platform=nav_plat
+        )
+        cookies = config.browser_override("cookies")
+        if cookies is not None:
+            await self.client.Network.setCookies(cookies)
+
+        headers = config.browser_override("extra_headers")
+        if headers is not None:
+            await self.client.Network.setExtraHTTPHeaders(headers)
+
+        device = config.browser_override("device")
+        screen_orientation = {"angle": 0, "type": "portraitPrimary"}
+        if device is not None:
+            vp = device["viewport"]  # type: Dict
+            if vp.pop("isLandscape", False):
+                screen_orientation["angle"] = 90
+                screen_orientation["type"] = "landscapePrimary"
+
+            await self.client.send(
+                "Emulation.setTouchEmulationEnabled",
+                {
+                    "enabled": vp.pop("hasTouch", False),
+                    "maxTouchPoints": vp.pop("maxTouchPoints", 1),
+                },
+            )
+            self._viewport = {
+                "mobile": vp.pop("isMobile", False),
+                "width": vp["width"],
+                "height": vp["height"],
+                "deviceScaleFactor": vp.pop("deviceScaleFactor", 1),
+                "screenOrientation": screen_orientation,
+            }
+            await self.client.Emulation.setDeviceMetricsOverride(**self._viewport)
+            return
+
+        metrics = await self.client.Page.getLayoutMetrics()
+        vv = metrics["visualViewport"]
+        self._viewport = {
+            "mobile": False,
+            "width": vv["clientWidth"],
+            "height": vv["clientHeight"],
+            "deviceScaleFactor": 1,
+            "screenOrientation": screen_orientation,
+        }
+
+    async def _upload_data(
+        self,
+        url: str,
+        params: Optional[Dict] = None,
+        data: Any = None,
+        json: Any = None,
+        headers: Optional[Dict] = None,
+    ) -> None:
+        """Uploads the supplied data or json to the supplied URL.
+        Method used is PUT
+
+        :param url: The URL of the upload endpoint
+        :param params: Query Params for the Request
+        :param data: Optional non JSON data
+        :param json: Optional data
+        :param headers: Optional HTTP headers to be used
+        """
+        logged_method = "_upload_data"
+        try:
+            async with self.session.put(
+                url, params=params, data=data, json=json, headers=headers
+            ) as resp:
+                resp.raise_for_status()
+        except ClientResponseError as e:
+            self.logger.exception(
+                logged_method,
+                "sent the data but the server indicates a failure",
+                exc_info=e,
+            )
+        except Exception as e:
+            self.logger.exception(logged_method, "sending the data failed", exc_info=e)
         else:
-            accept = False
-        await self.client.Page.handleJavaScriptDialog(accept=accept)
+            self.logger.info(logged_method, "sent the data to the configured endpoint")
+
+    async def _wait_for_reconnect(self) -> None:
+        """Attempt to reconnect to browser tab after client connection was replayed with
+        the devtools"""
+        self_init = self.init
+        loop = self.loop
+        while True:
+            try:
+                await self_init()
+                break
+            except Exception as e:
+                print(e)
+
+            await sleep(3.0, loop=loop)
+        self._reconnecting = False
+        if self._reconnect_promise and not self._reconnect_promise.done():
+            self._reconnect_promise.cancel()
 
     async def _on_inspector_crashed(self, *args: Any, **kwargs: Any) -> None:
         """Listener function for when the target has crashed.
@@ -462,6 +595,14 @@ class BaseTab(Tab):
             )
             self._close_reason = CloseReason.CONNECTION_CLOSED
             await self.close()
+
+    async def __handle_page_dialog(self, event: Dict) -> None:
+        _type = event.get("type")
+        if _type == "alert":
+            accept = True
+        else:
+            accept = False
+        await self.client.Page.handleJavaScriptDialog(accept=accept)
 
     def __str__(self) -> str:
         name = self.__class__.__name__

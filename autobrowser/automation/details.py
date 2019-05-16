@@ -4,7 +4,17 @@ from collections import Counter
 from enum import Enum, auto
 from operator import itemgetter
 from os import environ
-from typing import Any, Counter as CounterT, Dict, List, Optional, Tuple, Type, Union
+from typing import (
+    Any,
+    Counter as CounterT,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+    TYPE_CHECKING,
+)
 
 import attr
 import ujson
@@ -12,12 +22,15 @@ import ujson
 __all__ = [
     "AutomationConfig",
     "BrowserExitInfo",
+    "build_automation_config",
     "CloseReason",
+    "exit_code_from_reason",
     "RedisKeys",
     "TabClosedInfo",
-    "build_automation_config",
-    "exit_code_from_reason",
 ]
+
+if TYPE_CHECKING:
+    from aioredis import Redis
 
 logger = logging.getLogger("autobrowser")
 
@@ -138,6 +151,7 @@ class AutomationConfig:
     wait_for_q: Optional[Union[int, float]] = attr.ib(default=-1)
     wait_for_q_poll_rate: Optional[Union[int, float]] = attr.ib(default=-1)
     net_cache_disabled: bool = attr.ib(default=True)
+    browser_overrides: Optional[Dict] = attr.ib(default=None)
 
     # configuration details concerning redis
     redis_url: str = attr.ib(default=None)
@@ -165,14 +179,16 @@ class AutomationConfig:
     browser_info_path: str = attr.ib(default=None)
     cdp_port: str = attr.ib(default=None)
 
-    # configuration details concerning where to send screenshots
-    # to if we are taking them
+    # configuration details concerning where to send data
+    # during the crawl to if we are to send something
     screenshot_api_url: Optional[str] = attr.ib(default=None)
     screenshot_target_uri: Optional[str] = attr.ib(default=None)
     screenshot_format: Optional[str] = attr.ib(default=None)
     screenshot_dimensions: Optional[Tuple[float, float]] = attr.ib(
         default=None, converter=convert_screenshot_dims
     )
+    extracted_mhtml_api_url: Optional[str] = attr.ib(default=None)
+    extracted_raw_dom_api_url: Optional[str] = attr.ib(default=None)
 
     # other configuration details
     chrome_opts: Optional[Dict] = attr.ib(default=None, repr=False)
@@ -185,6 +201,28 @@ class AutomationConfig:
         endpoint
         """
         return self.screenshot_api_url is not None
+
+    @property
+    def should_retrieve_raw_dom(self) -> bool:
+        return self.extracted_raw_dom_api_url is not None
+
+    @property
+    def should_retrieve_mhtml(self) -> bool:
+        return self.extracted_mhtml_api_url is not None
+
+    @property
+    def require_post_behavior_actions(self) -> bool:
+        return any(
+            (
+                self.screenshot_api_url,
+                self.extracted_raw_dom_api_url,
+                self.extracted_mhtml_api_url,
+            )
+        )
+
+    @property
+    def has_browser_overrides(self) -> bool:
+        return self.browser_overrides is not None
 
     def make_shepherd_url(self, shepherd_endpoint: str = "") -> str:
         """Creates a full shepherd end point URL using the supplied
@@ -289,6 +327,24 @@ class AutomationConfig:
                 return value
         return getattr(self, key, None)
 
+    def browser_override(
+        self, override: str, default: Optional[Any] = None
+    ) -> Any:
+        if self.browser_overrides is None:
+            return None
+        return self.browser_overrides.get(override, default)
+
+    async def load_browser_overrides(self, redis: "Redis") -> bool:
+        customs_str = await redis.hget(self.redis_keys.info, "browser_overrides")
+        if customs_str is None:
+            return False
+        overrides = ujson.loads(customs_str)
+        if self.has_browser_overrides:
+            self.browser_overrides.update(overrides)
+        else:
+            self.browser_overrides = overrides
+        return True
+
     @redis_keys.default
     def redis_keys_default(self) -> "RedisKeys":
         """Creates and returns the value for the redis_config property"""
@@ -335,6 +391,8 @@ def build_automation_config(
         ),
         screenshot_format=env("SCREENSHOT_FORMAT", default="png"),
         screenshot_dimensions=env("SCREENSHOT_DIMENSIONS"),
+        extracted_mhtml_api_url=env("EXTRACTED_MHTML_API_URL"),
+        extracted_raw_dom_api_url=env("EXTRACTED_RAW_DOM_API_URL"),
         cdp_port=env("CDP_PORT", default="9222"),
         req_browser_path=env("REQ_BROWSER_PATH", default="/request_browser/"),
         init_browser_pathq=env("INIT_BROWSER_PATH", default="/init_browser?reqid="),

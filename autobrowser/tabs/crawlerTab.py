@@ -5,9 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import aiofiles
-from simplechrome.errors import NavigationError
-from simplechrome.frame_manager import Frame, FrameManager
-from simplechrome.network_manager import NetworkManager, Response
+from simplechrome import Frame, FrameManager, NavigationError, NetworkManager, Response
 
 from autobrowser.automation import CloseReason
 from autobrowser.frontier import RedisFrontier
@@ -140,6 +138,43 @@ class CrawlerTab(BaseTab):
                 "evaluating clear_outlinks threw an exception",
                 exc_info=e,
             )
+
+    async def collect_outlinks_all_frames(self) -> None:
+        """Manually collects out links (a[href], area[href]) from all (i)frames in the current page"""
+        logged_method = "collect_outlinks_all_frames"
+        self.logger.debug(logged_method, "collecting")
+        try:
+            await self.client.DOM.enable()
+        except Exception as e:
+            self.logger.exception(
+                logged_method, "failed to enabled the DOM domain", exc_info=e
+            )
+            return
+
+        out_links: List[str] = []
+        promises = []
+        add_extraction_promise = promises.append
+        extract_href_from_remote_node = self._extract_href_from_remote_node
+
+        # we accumulate a list of extraction promises rather than awaiting each
+        # extraction sequentially because asyncio.gather runs the accumulated
+        # promises concurrently allowing us to efficiently extract the href
+        # value of the a or area nodes contained in every (i)frame of the page
+        nodes = await self.client.DOM.getFlattenedDocument(depth=-1, pierce=True)
+        for node in nodes["nodes"]:
+            node_name = node["localName"]
+            if node_name == "a" or node_name == "area":
+                add_extraction_promise(extract_href_from_remote_node(node, out_links))
+        if promises:
+            await gather(*promises, loop=self.loop, return_exceptions=True)
+        try:
+            await self.client.DOM.disable()
+        except Exception as e:
+            self.logger.exception(
+                logged_method, "failed to disable the DOM domain", exc_info=e
+            )
+        if out_links:
+            await self.frontier.add_all(out_links)
 
     async def crawl(self) -> None:
         """Starts the crawl loop.
@@ -280,10 +315,10 @@ class CrawlerTab(BaseTab):
         frame_tree = await self.client.Page.getFrameTree()
         self.frames = FrameManager(
             self.client,
-            frame_tree["frameTree"],
             networkManager=self.network,
             isolateWorlds=False,
             loop=self.loop,
+            frameTree=frame_tree["frameTree"],
         )
         self.network.setFrameManager(self.frames)
         self.frames.setDefaultNavigationTimeout(self._navigation_timeout)
@@ -301,7 +336,8 @@ class CrawlerTab(BaseTab):
                 else "we were not configured to wait"
             )
             self.logger.info(
-                logged_method, f"the frontier is empty and {specifics}, we will be exiting"
+                logged_method,
+                f"the frontier is empty and {specifics}, we will be exiting",
             )
         self.crawl_loop_task = self.loop.create_task(self.crawl())
         self.logger.info(logged_method, "initialized")
@@ -342,7 +378,7 @@ class CrawlerTab(BaseTab):
             self.main_frame.url,
             self,
             collect_outlinks=True,
-            take_screen_shot=self.config.should_take_screenshot,
+            post_run_actions=self.config.require_post_behavior_actions,
         )
         self.logger.debug(logged_method, f"running behavior {behavior}")
         # we have a behavior to be run so run it
@@ -366,20 +402,43 @@ class CrawlerTab(BaseTab):
         # perform any actions that we are configured to do after the behavior has run
         await self._post_run_behavior()
 
-    async def wait_for_net_idle(
-        self, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
+    async def _handle_navigation_result(
+        self, url: str, navigation_result: NavigationResult
     ) -> None:
-        """Returns a future that  resolves once network idle occurs.
+        """Performs the next crawler action based on the supplied navigation results.
 
-        See the options of simplechrome.network_idle_monitor.NetworkIdleMonitor for a complete
-        description of the available arguments
+        Actions:
+           - `EXIT_CRAWL_LOOP`: log and set the `_exit_crawl_loop` to True
+           - `SKIP_URL`: log
+           - `OK`: log and run the page's behavior
+
+        The currently crawled URL is always updated in redis no matter what
+        the navigation result is.
+
+        :param url: The URL of the page navigated to
+        :param navigation_result: The results of the navigation
         """
-        logged_method = "wait_for_net_idle"
-        self.logger.debug(logged_method, "waiting for network idle")
-        await self.network.network_idle_promise(
-            num_inflight=num_inflight, idle_time=idle_time, global_wait=global_wait
-        )
-        self.logger.debug(logged_method, "network idle reached")
+        logged_method = "_handle_navigation_result"
+        if navigation_result == NavigationResult.OK:
+            self.logger.info(
+                logged_method, f"navigated to the next URL with no error - {url}"
+            )
+            await self.run_behavior()
+
+        elif navigation_result == NavigationResult.EXIT_CRAWL_LOOP:
+            self.logger.critical(
+                logged_method,
+                f"exiting crawl loop due to fatal navigation error - {url}",
+            )
+            self._exit_crawl_loop = True
+
+        elif navigation_result == NavigationResult.SKIP_URL:
+            self.logger.info(
+                logged_method, f"the URL navigated to is being skipped - {url}"
+            )
+
+        # we remove from pending set when we run a behavior
+        await self.frontier.remove_current_from_pending()
 
     def _crawl_loop_running(self) -> bool:
         """Returns T/F indicating if the crawl loop is running (task not done)
@@ -469,47 +528,8 @@ class CrawlerTab(BaseTab):
             # coroutines can do their thing if they are waiting. e.g. shutdowns etc
             await one_tick_sleep()
 
-    async def _handle_navigation_result(
-        self, url: str, navigation_result: NavigationResult
-    ) -> None:
-        """Performs the next crawler action based on the supplied navigation results.
-
-        Actions:
-           - `EXIT_CRAWL_LOOP`: log and set the `_exit_crawl_loop` to True
-           - `SKIP_URL`: log
-           - `OK`: log and run the page's behavior
-
-        The currently crawled URL is always updated in redis no matter what
-        the navigation result is.
-
-        :param url: The URL of the page navigated to
-        :param navigation_result: The results of the navigation
-        """
-        logged_method = "_handle_navigation_result"
-        # we only remove the URL from the pending set if we run the behavior
-        if navigation_result == NavigationResult.EXIT_CRAWL_LOOP:
-            self.logger.critical(
-                logged_method,
-                f"exiting crawl loop due to fatal navigation error - {url}",
-            )
-            self._exit_crawl_loop = True
-            return
-        if navigation_result == NavigationResult.SKIP_URL:
-            self.logger.info(
-                logged_method, f"the URL navigated to is being skipped - {url}"
-            )
-            return
-
-        self.logger.info(
-            logged_method, f"navigated to the next URL with no error - {url}"
-        )
-
-        # we remove from pending set when we run a behavior
-        await self.run_behavior()
-
     async def _post_run_behavior(self) -> None:
         """Performs the actions the crawler is configured to perform once a behavior has run"""
-        await self.frontier.remove_current_from_pending()
         await self._visit_inner_page_links()
 
     async def _visit_inner_page_links(self) -> None:
@@ -539,39 +559,6 @@ class CrawlerTab(BaseTab):
                 else "attempted to visit all inner page links but an exception occurred"
             )
             self.logger.exception(logged_method, msg, exc_info=e)
-
-    async def collect_outlinks_all_frames(self) -> None:
-        """Manually collects out links (a[href], area[href]) from all (i)frames in the current page"""
-        logged_method = "collect_outlinks_all_frames"
-        self.logger.debug(logged_method, "collecting")
-        try:
-            await self.client.DOM.enable()
-        except Exception as e:
-            self.logger.exception(logged_method, "failed to enabled the DOM domain", exc_info=e)
-            return
-
-        out_links: List[str] = []
-        promises = []
-        add_extraction_promise = promises.append
-        extract_href_from_remote_node = self._extract_href_from_remote_node
-
-        # we accumulate a list of extraction promises rather than awaiting each
-        # extraction sequentially because asyncio.gather runs the accumulated
-        # promises concurrently allowing us to efficiently extract the href
-        # value of the a or area nodes contained in every (i)frame of the page
-        nodes = await self.client.DOM.getFlattenedDocument(depth=-1, pierce=True)
-        for node in nodes["nodes"]:
-            node_name = node["localName"]
-            if node_name == "a" or node_name == "area":
-                add_extraction_promise(extract_href_from_remote_node(node, out_links))
-        if promises:
-            await gather(*promises, loop=self.loop, return_exceptions=True)
-        try:
-            await self.client.DOM.disable()
-        except Exception as e:
-            self.logger.exception(logged_method, "failed to disable the DOM domain", exc_info=e)
-        if out_links:
-            await self.frontier.add_all(out_links)
 
     async def _extract_href_from_remote_node(
         self, node: Dict, outlink_accum: List[str]

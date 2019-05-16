@@ -41,13 +41,24 @@ class BaseDriver(Driver):
 
     async def init(self) -> None:
         """Initialize the driver."""
+        logged_method = "init"
         redis_url = self.conf.redis_url
-        self.logger.info("init", f"connecting to redis <url={redis_url}>")
+        self.logger.info(logged_method, f"connecting to redis <url={redis_url}>")
         self.did_init = True
         self.redis = await create_redis_pool(
             redis_url, loop=self.loop, encoding="utf-8"
         )
-        self.logger.info("init", f"connected to redis <url={redis_url}>")
+        self.logger.info(logged_method, f"connected to redis <url={redis_url}>")
+
+        self.logger.info(logged_method, "checking for browser overrides")
+        loaded_overrides = await self.conf.load_browser_overrides(self.redis)
+        if loaded_overrides:
+            self.logger.info(
+                logged_method,
+                f"we have browser overrides, loaded them - {self.conf.browser_overrides}",
+            )
+        else:
+            self.logger.info(logged_method, "we do not have browser overrides")
 
     async def clean_up(self) -> None:
         """Performs any necessary cleanup Close all dependant resources.

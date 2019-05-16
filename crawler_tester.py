@@ -55,8 +55,6 @@ DEFAULT_ARGS = [
     "--metrics-recording-only",
     "--no-first-run",
     "--safebrowsing-disable-auto-update",
-    "--password-store=basic",
-    "--use-mock-keychain",
     "--mute-audio",
     "--autoplay-policy=no-user-gesture-required",
     "about:blank",
@@ -100,6 +98,9 @@ async def reset_redis(
             redis.sadd(seen_key, url),
             loop=loop,
         )
+    # await redis.hset(info_key, "browser_overrides", ujson.dumps({
+    #     "accept_language": "fr-CH, fr;q=0.9, en;q=0.8, de;q=0.7, *;q=0.5"
+    # }))
 
 RESET_REDIS = True
 RESET_REDIS_HARD = True

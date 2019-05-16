@@ -46,6 +46,11 @@ class RedisScope:
         self.logger: AutoLogger = create_autologger("scope", "RedisScope")
         self._current_page: str = ""
 
+    @property
+    def current_page(self) -> str:
+        """Returns the value of the set current page"""
+        return self._current_page
+
     async def init(self) -> None:
         """Initialize the scope class.
 

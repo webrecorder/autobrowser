@@ -384,9 +384,9 @@ class Tab(EventEmitterS, metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def wait_for_net_idle(
+    async def wait_for_net_idle(
         self, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
-    ) -> Awaitable[None]:
+    ) -> None:
         """Returns a future that  resolves once network idle occurs.
 
         See the options of autobrowser.util.netidle.monitor for a complete
@@ -467,6 +467,12 @@ class Tab(EventEmitterS, metaclass=ABCMeta):
     @abstractmethod
     async def navigation_reset(self) -> None:
         """Navigates the tab to about:blank"""
+
+    @abstractmethod
+    async def post_behavior_run(self) -> None:
+        """Perform some actions once a behavior has finished
+        if any are configured to be run
+        """
 
     async def collect_outlinks(self, all_frames: bool = False) -> None:
         """Collect out links from the remote tab somehow, typically the

@@ -219,7 +219,7 @@ class RedisFrontier:
         :return: T/F indicating if the URL @ depth was added to the frontier
         """
         logged_method = "add"
-        url_info = Helper.json_string(url=url, depth=depth)
+        url_info = Helper.json_string(url=url, depth=depth, page=self.scope.current_page)
 
         in_scope = self.scope.in_scope(url)
         if not in_scope:
@@ -244,8 +244,8 @@ class RedisFrontier:
             )
             return False
 
-        self.logger.info(logged_method, f"Adding URL to the frontier - {url_info}")
         await self.redis.rpush(self.keys.queue, url_info)
+        self.logger.info(logged_method, f"Added URL to the frontier - {url_info}")
         return True
 
     async def add_all(self, urls: Iterable[str]) -> bool:
