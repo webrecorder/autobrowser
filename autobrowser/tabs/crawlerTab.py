@@ -324,10 +324,7 @@ class CrawlerTab(BaseTab):
         self.frames.setDefaultNavigationTimeout(self._navigation_timeout)
         # ensure we do not have any naughty JS by disabling its ability to
         # prevent us from navigating away from the page
-        async with aiofiles.open(
-            str(Path(__file__).parent / "js" / "nice.js"), "r"
-        ) as iin:
-            await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
+        await self._load_utility_js()
         empty_frontier = await self.frontier.init()
         if empty_frontier:
             specifics = (
@@ -586,6 +583,24 @@ class CrawlerTab(BaseTab):
         url = results.get("result", {}).get("value")
         if Helper.url_has_crawlable_scheme(url):
             outlink_accum.append(url)
+
+    async def _load_utility_js(self) -> None:
+        """Loads and adds utility JS files found in autobrowser/tabs/js
+        to the set of scripts the browser will evaluate on every new
+        document before evaluating any of the documents own scripts.
+
+        Script list
+          - nice.js: ensures that the browser can not be trapped by prompts et. al.
+          - notTopMiniBehavior.js: an mini-behavior for child frames that handles
+            soundcloud, youtube, and vimeo embeds or scrolls frame playing audio/video
+            tags
+          - notABot.js: ensures, to the best of our ability, that we will not
+            be finger printed as a bot
+        """
+        js_dir = Path(__file__).parent / "js"
+        for js_file in ["nice.js", "notTopMiniBehavior.js", "notABot.js"]:
+            async with aiofiles.open(str(js_dir / js_file), "r") as iin:
+                await self.client.Page.addScriptToEvaluateOnNewDocument(await iin.read())
 
     def _should_exit_crawl_loop(self) -> bool:
         """Returns T/F indicating if the crawl loop should be exited based on if
