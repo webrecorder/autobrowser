@@ -485,23 +485,22 @@ class BaseTab(Tab):
         device = config.browser_override("device")
         screen_orientation = {"angle": 0, "type": "portraitPrimary"}
         if device is not None:
-            vp = device["viewport"]  # type: Dict
-            if vp.pop("isLandscape", False):
+            if device.get("isLandscape", False):
                 screen_orientation["angle"] = 90
                 screen_orientation["type"] = "landscapePrimary"
 
             await self.client.send(
                 "Emulation.setTouchEmulationEnabled",
                 {
-                    "enabled": vp.pop("hasTouch", False),
-                    "maxTouchPoints": vp.pop("maxTouchPoints", 1),
+                    "enabled": device.get("hasTouch", False),
+                    "maxTouchPoints": device.get("maxTouchPoints", 1),
                 },
             )
             self._viewport = {
-                "mobile": vp.pop("isMobile", False),
-                "width": vp["width"],
-                "height": vp["height"],
-                "deviceScaleFactor": vp.pop("deviceScaleFactor", 1),
+                "mobile": device.get("isMobile", False),
+                "width": device["width"],
+                "height": device["height"],
+                "deviceScaleFactor": device.get("deviceScaleFactor", 1),
                 "screenOrientation": screen_orientation,
             }
             await self.client.Emulation.setDeviceMetricsOverride(**self._viewport)
