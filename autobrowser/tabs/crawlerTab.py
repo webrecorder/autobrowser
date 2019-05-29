@@ -4,6 +4,9 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from email.utils import parsedate
+import datetime
+
 import aiofiles
 from simplechrome import Frame, FrameManager, NavigationError, NetworkManager, Response
 
@@ -248,6 +251,16 @@ class CrawlerTab(BaseTab):
         await self.redis.lpush(self.config.redis_keys.auto_done, end_info)
         await super().close()
 
+    def memento_header_to_timestamp(self, memento_dt):
+        if not memento_dt:
+            return ''
+
+        try:
+            dt = datetime.datetime(*parsedate(memento_dt)[:6])
+            return dt.strftime('%Y%m%d%H%M%S')
+        except Exception as e:
+            return ''
+
     async def goto(
         self, url: str, wait: str = "load", *args: Any, **kwargs: Any
     ) -> NavigationResult:
@@ -266,6 +279,7 @@ class CrawlerTab(BaseTab):
             response = await self.frames.mainFrame.goto(
                 url, waitUntil=wait, timeout=self._navigation_timeout
             )
+            self._timestamp = self.memento_header_to_timestamp(response.headers.get('Memento-Datetime'))
             info = (
                 Helper.json_string(
                     url=url,

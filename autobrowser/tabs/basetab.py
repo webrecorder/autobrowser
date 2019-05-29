@@ -35,6 +35,7 @@ class BaseTab(Tab):
         "_reconnecting",
         "_running",
         "_running_behavior",
+        "_timestamp",
         "_url",
         "_viewport",
         "browser",
@@ -63,6 +64,7 @@ class BaseTab(Tab):
         self.logger: AutoLogger = create_autologger("tabs", self.__class__.__name__)
         self._url: str = self.tab_data["url"]
         self._id: str = self.tab_data["id"]
+        self._timestamp: str = None
         self._behaviors_paused: bool = False
         self._connection_closed: bool = False
         self._running: bool = False
@@ -325,6 +327,9 @@ class BaseTab(Tab):
         self.logger.info(logged_method, "shutdown complete")
 
     async def post_behavior_run(self) -> None:
+        if not self._timestamp:
+            self._timestamp = await self.evaluate_in_page("window.wbinfo && window.wbinfo.timestamp")
+
         await self.capture_and_upload_screenshot()
         await self.extract_page_data_and_send()
 
@@ -390,21 +395,13 @@ class BaseTab(Tab):
                 logged_method,
                 "sending the captured screenshot to the configured endpoint",
             )
-            config = self.config
-            content_type = "image/png"
             await self._upload_data(
-                config.screenshot_api_url,
-                params={
-                    "reqid": config.reqid,
-                    "target_uri": config.screenshot_target_uri.format(url=self._url),
-                    "content_type": content_type,
-                },
+                self.config.screenshot_api_url,
                 data=BytesIO(screen_shot),
-                headers={"content-type": content_type},
+                content_type='image/png'
             )
 
     async def extract_page_data_and_send(self) -> None:
-        config = self.config
         if self.config.should_retrieve_raw_dom:
             try:
                 dom = await self.client.DOM.getDocument(depth=-1, pierce=True)
@@ -412,9 +409,10 @@ class BaseTab(Tab):
                 dom = None
             if dom is not None:
                 await self._upload_data(
-                    config.extracted_raw_dom_api_url,
-                    params={"reqid": config.reqid},
+                    self.config.extracted_raw_dom_api_url,
+                    params={'hasScreenshot': '1' if self.config.should_take_screenshot else '0'},
                     json=dom,
+                    content_type='application/json'
                 )
 
         if self.config.should_retrieve_mhtml:
@@ -423,12 +421,10 @@ class BaseTab(Tab):
             except Exception as e:
                 mhtml = None
             if mhtml is not None:
-                content_type = "text/mhtml"
                 await self._upload_data(
-                    config.extracted_mhtml_api_url,
-                    params={"reqid": config.reqid},
+                    self.config.extracted_mhtml_api_url,
                     data=mhtml,
-                    headers={"content-type": content_type},
+                    content_type='text/mhtml'
                 )
 
     async def navigation_reset(self) -> None:
@@ -523,17 +519,24 @@ class BaseTab(Tab):
         params: Optional[Dict] = None,
         data: Any = None,
         json: Any = None,
-        headers: Optional[Dict] = None,
+        content_type = 'application/json',
     ) -> None:
         """Uploads the supplied data or json to the supplied URL.
         Method used is PUT
 
         :param url: The URL of the upload endpoint
-        :param params: Query Params for the Request
+        :param params: Extra query params for the Request
         :param data: Optional non JSON data
-        :param json: Optional data
-        :param headers: Optional HTTP headers to be used
+        :param json: Optional json data
+        :param headers: content-type to be used with the data
         """
+        params = params or {}
+        params['reqid'] = self.config.reqid
+        params['url'] = self._url
+        params['timestamp'] = self._timestamp
+
+        headers = {'Content-Type': content_type}
+
         logged_method = "_upload_data"
         try:
             async with self.session.put(
