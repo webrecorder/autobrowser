@@ -528,7 +528,7 @@ class BaseTab(Tab):
         :param params: Extra query params for the Request
         :param data: Optional non JSON data
         :param json: Optional json data
-        :param headers: content-type to be used with the data
+        :param content_type: content-type to be used with the data
         """
         params = params or {}
         params['reqid'] = self.config.reqid
