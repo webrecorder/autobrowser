@@ -519,7 +519,7 @@ class BaseTab(Tab):
         params: Optional[Dict] = None,
         data: Any = None,
         json: Any = None,
-        content_type = 'application/json',
+        content_type: str = 'application/json',
     ) -> None:
         """Uploads the supplied data or json to the supplied URL.
         Method used is PUT
