@@ -182,7 +182,6 @@ class AutomationConfig:
     # configuration details concerning where to send data
     # during the crawl to if we are to send something
     screenshot_api_url: Optional[str] = attr.ib(default=None)
-    screenshot_target_uri: Optional[str] = attr.ib(default=None)
     screenshot_format: Optional[str] = attr.ib(default=None)
     screenshot_dimensions: Optional[Tuple[float, float]] = attr.ib(
         default=None, converter=convert_screenshot_dims
@@ -306,14 +305,6 @@ class AutomationConfig:
         """
         return f"{self.fetch_behavior_info_endpoint}{page_url}"
 
-    def screenshot_endpoint_url(
-        self, reqid: Optional[str] = None, format_: str = "png"
-    ) -> str:
-        if reqid is None:
-            reqid = self.reqid
-        params = f"?reqid={reqid}&target_uri={self.screenshot_target_uri}&content_type=image/{format_}"
-        return f"{self.screenshot_api_url}{params}"
-
     def get(self, key: Any, default: Any = None) -> Any:
         value = self.config_value(key)
         if value is None:
@@ -386,9 +377,6 @@ def build_automation_config(
             "FETCH_BEHAVIOR_INFO_ENDPOINT", default=f"{behavior_api_url}/info?url="
         ),
         screenshot_api_url=env("SCREENSHOT_API_URL"),
-        screenshot_target_uri=env(
-            "SCREENSHOT_TARGET_URI", default="urn:screenshot:{url}"
-        ),
         screenshot_format=env("SCREENSHOT_FORMAT", default="png"),
         screenshot_dimensions=env("SCREENSHOT_DIMENSIONS"),
         extracted_mhtml_api_url=env("EXTRACTED_MHTML_API_URL"),

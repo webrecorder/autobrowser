@@ -4,6 +4,9 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from email.utils import parsedate
+import datetime
+
 import aiofiles
 from simplechrome import Frame, FrameManager, NavigationError, NetworkManager, Response
 
@@ -248,6 +251,32 @@ class CrawlerTab(BaseTab):
         await self.redis.lpush(self.config.redis_keys.auto_done, end_info)
         await super().close()
 
+    def set_timestamp_from_response(self, response: Response) -> None:
+        """Sets the 14-digit timestamp for the specified response
+        by parsing the Memento-Datetime header, if any.
+        If no memento header present, use the current UTC time
+        time as the timestamp
+
+        :param response: The Response object to parse
+        """
+
+        memento_dt = None
+        dt = None
+
+        if response and response.headers:
+            memento_dt = response.headers.get('Memento-Datetime')
+
+            if memento_dt:
+                try:
+                    dt = datetime.datetime(*parsedate(memento_dt)[:6])
+                except Exception as e:
+                    pass
+
+        if not dt:
+            dt = datetime.datetime.utcnow()
+
+        self._timestamp = dt.strftime('%Y%m%d%H%M%S')
+
     async def goto(
         self, url: str, wait: str = "load", *args: Any, **kwargs: Any
     ) -> NavigationResult:
@@ -266,6 +295,7 @@ class CrawlerTab(BaseTab):
             response = await self.frames.mainFrame.goto(
                 url, waitUntil=wait, timeout=self._navigation_timeout
             )
+            self.set_timestamp_from_response(response)
             info = (
                 Helper.json_string(
                     url=url,
