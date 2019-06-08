@@ -251,15 +251,31 @@ class CrawlerTab(BaseTab):
         await self.redis.lpush(self.config.redis_keys.auto_done, end_info)
         await super().close()
 
-    def memento_header_to_timestamp(self, memento_dt):
-        if not memento_dt:
-            return ''
+    def set_timestamp_from_response(self, response: Response) -> None:
+        """Sets the 14-digit timestamp for the specified response
+        by parsing the Memento-Datetime header, if any.
+        If no memento header present, use the current UTC time
+        time as the timestamp
 
-        try:
-            dt = datetime.datetime(*parsedate(memento_dt)[:6])
-            return dt.strftime('%Y%m%d%H%M%S')
-        except Exception as e:
-            return ''
+        :param response: The Response object to parse
+        """
+
+        memento_dt = None
+        dt = None
+
+        if response and response.headers:
+            memento_dt = response.headers.get('Memento-Datetime')
+
+            if memento_dt:
+                try:
+                    dt = datetime.datetime(*parsedate(memento_dt)[:6])
+                except Exception as e:
+                    pass
+
+        if not dt:
+            dt = datetime.datetime.utcnow()
+
+        self._timestamp = dt.strftime('%Y%m%d%H%M%S')
 
     async def goto(
         self, url: str, wait: str = "load", *args: Any, **kwargs: Any
@@ -279,7 +295,7 @@ class CrawlerTab(BaseTab):
             response = await self.frames.mainFrame.goto(
                 url, waitUntil=wait, timeout=self._navigation_timeout
             )
-            self._timestamp = self.memento_header_to_timestamp(response.headers.get('Memento-Datetime'))
+            self.set_timestamp_from_response(response)
             info = (
                 Helper.json_string(
                     url=url,

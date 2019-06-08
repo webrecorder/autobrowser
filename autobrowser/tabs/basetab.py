@@ -327,9 +327,6 @@ class BaseTab(Tab):
         self.logger.info(logged_method, "shutdown complete")
 
     async def post_behavior_run(self) -> None:
-        if not self._timestamp:
-            self._timestamp = await self.evaluate_in_page("window.wbinfo && window.wbinfo.timestamp")
-
         await self.capture_and_upload_screenshot()
         await self.extract_page_data_and_send()
 
