@@ -1,13 +1,14 @@
 import asyncio
 import logging
-import ujson
 from asyncio import AbstractEventLoop
+from urllib.parse import urlsplit
 
 import aioredis
+import ujson
 import uvloop
 from aioredis import Redis
 
-from autobrowser import build_automation_config, LocalBrowserDiver, run_automation
+from autobrowser import LocalBrowserDiver, build_automation_config, run_automation
 
 try:
     uvloop.install()
@@ -41,7 +42,6 @@ DEFAULT_ARGS = [
     "--disable-ipc-flooding-protection",
     "--disable-client-side-phishing-detection",
     "--disable-default-apps",
-    "--disable-extensions",
     "--disable-popup-blocking",
     "--disable-hang-monitor",
     "--disable-prompt-on-repost",
@@ -60,7 +60,8 @@ DEFAULT_ARGS = [
     "about:blank",
 ]
 
-
+crawl_mode = "same-domain"
+crawl_depth = -1
 dummy_auto_id = "321"
 info_key = f"a:{dummy_auto_id}:info"
 scope_key = f"a:{dummy_auto_id}:scope"
@@ -69,6 +70,8 @@ done_key = f"{dummy_auto_id}:br:done"
 q_key = f"a:{dummy_auto_id}:q"
 
 default_seed_list = [
+    "http://www.zedosbois.org/",
+    "https://www.iana.org/protocols",
     "http://garden-club.link/",
     "https://www.iana.org/",
     "http://www.spiritsurfers.net/",
@@ -84,6 +87,16 @@ default_seed_list = [
 ]
 
 
+async def create_scope(url: str, redis: Redis) -> None:
+    if crawl_mode == "same-domain":
+        await redis.sadd(
+            scope_key,
+            ujson.dumps(
+                {"domain": urlsplit(url).netloc.replace("www.", ""), "strict": True}
+            ),
+        )
+
+
 async def reset_redis(
     redis: Redis, loop: AbstractEventLoop, hard: bool = False
 ) -> None:
@@ -91,11 +104,12 @@ async def reset_redis(
         await redis.flushall()
     else:
         await redis.delete(q_key, info_key, seen_key, scope_key, done_key),
-    await redis.hset(info_key, "crawl_depth", 2),
+    await redis.hmset_dict(info_key, {"crawl_depth": crawl_depth, "mode": crawl_mode})
     for url in default_seed_list:
         await asyncio.gather(
             redis.rpush(q_key, ujson.dumps({"url": url, "depth": 0})),
             redis.sadd(seen_key, url),
+            create_scope(url, redis),
             loop=loop,
         )
     # await redis.hset(info_key, "browser_overrides", ujson.dumps({

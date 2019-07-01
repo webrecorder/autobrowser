@@ -2,11 +2,12 @@ from typing import Dict, List, Union
 
 from aioredis import Redis
 from ujson import loads
-from urlcanon import MatchRule
-from urlcanon.canon import remove_fragment, whatwg
+from urlcanon.canon import remove_fragment, strip_www, whatwg
+from urlcanon.parse import parse_url
 
 from autobrowser.automation import RedisKeys
 from autobrowser.util import AutoLogger, create_autologger
+from .strict_rules import StrictMatchRule
 
 __all__ = ["RedisScope"]
 
@@ -41,7 +42,7 @@ class RedisScope:
         """
         self.redis: Redis = redis
         self.keys: RedisKeys = keys
-        self.rules: List[MatchRule] = []
+        self.rules: List[StrictMatchRule] = []
         self.all_links: bool = False
         self.logger: AutoLogger = create_autologger("scope", "RedisScope")
         self._current_page: str = ""
@@ -78,12 +79,14 @@ class RedisScope:
         """
         if self.all_links:
             return True
+        purl = parse_url(url)
+        strip_www(purl)
         for rule in self.rules:
-            if rule.applies(url):
+            if rule.applies(purl):
                 return True
         return False
 
-    def add_scope_rule(self, scope_rule: Union[str, Dict, MatchRule]) -> None:
+    def add_scope_rule(self, scope_rule: Union[str, Dict, StrictMatchRule]) -> None:
         """Creates a new urlcanon.MatchRule using the supplied scope rule and
         adds it to list of rules
 
@@ -91,9 +94,9 @@ class RedisScope:
         :return:
         """
         if isinstance(scope_rule, str):
-            the_rule = MatchRule(**loads(scope_rule))
+            the_rule = StrictMatchRule(**loads(scope_rule))
         elif isinstance(scope_rule, dict):
-            the_rule = MatchRule(**scope_rule)
+            the_rule = StrictMatchRule(**scope_rule)
         else:
             the_rule = scope_rule
         self.logger.info("add_scope_rule", f"adding rule={the_rule}")
@@ -108,8 +111,7 @@ class RedisScope:
         is a inner page link.
         """
         canonicalized = whatwg.canonicalize(url)
-        hash_frag = (canonicalized.hash_sign + canonicalized.fragment).decode("utf-8")
-        if not hash_frag:
+        if not canonicalized.hash_sign and not canonicalized.fragment:
             return False
         remove_fragment(canonicalized)
         return str(canonicalized) == self._current_page

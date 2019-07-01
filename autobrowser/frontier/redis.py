@@ -195,7 +195,7 @@ class RedisFrontier:
 
         """
         self.crawl_depth = int(
-            await self.redis.hget(self.keys.info, CRAWL_DEPTH_FIELD) or 0
+            await self.redis.hget(self.keys.info, CRAWL_DEPTH_FIELD) or -1
         )
         self.logger.info("init", f"crawl depth = {self.crawl_depth}")
         await self.scope.init()
@@ -259,7 +259,7 @@ class RedisFrontier:
         """
         logged_method = "add_all"
         next_depth = self.next_depth()
-        if next_depth > self.crawl_depth:
+        if self.crawl_depth != -1 and next_depth > self.crawl_depth:
             self.logger.info(
                 logged_method,
                 f"Not adding any URLs, maximum crawl depth exceeded. Max depth = {self.crawl_depth}",

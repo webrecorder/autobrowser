@@ -183,7 +183,7 @@ class BaseTab(Tab):
         await self._reconnect_promise
 
     async def wait_for_net_idle(
-        self, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 60
+        self, num_inflight: int = 2, idle_time: int = 2, global_wait: int = 10
     ) -> None:
         """Returns a future that  resolves once network idle occurs.
 
@@ -489,13 +489,15 @@ class BaseTab(Tab):
                 screen_orientation["angle"] = 90
                 screen_orientation["type"] = "landscapePrimary"
 
-            await self.client.send(
-                "Emulation.setTouchEmulationEnabled",
-                {
-                    "enabled": device.get("hasTouch", False),
-                    "maxTouchPoints": device.get("maxTouchPoints", 1),
-                },
-            )
+            has_touch = device.get("hasTouch")
+            if has_touch is not None:
+                await self.client.send(
+                    "Emulation.setTouchEmulationEnabled",
+                    {
+                        "enabled": has_touch or False,
+                        "maxTouchPoints": device.get("maxTouchPoints", 1),
+                    },
+                )
             self._viewport = {
                 "mobile": device.get("isMobile", False),
                 "width": device["width"],
